@@ -178,6 +178,7 @@ try {
       ['about', '/about', 'pages/PublicJournalPages.tsx'],
       ['login', '/login', 'pages/AuthPage.tsx'],
       ['signup', '/signup', 'pages/AuthPage.tsx'],
+      ['password-reset', '/login?flow=recovery', 'pages/AuthPage.tsx'],
       ['verification', '/verify-email', 'pages/EmailVerificationPage.tsx'],
       ['callback', '/auth/callback', 'pages/EmailVerificationPage.tsx'],
       ['new', '/app/recipes/new', 'pages/CreateRecipePage.tsx'],
@@ -254,6 +255,20 @@ try {
           return [name, e?.getBoundingClientRect().toJSON()]
         }))
         const loadingWriting = ['new', 'notes', 'chef'].includes(name) ? await page.evaluate(measureWritingLayout, name) : null
+        const measureAuth = () => Object.fromEntries([
+          ['card', '.mm-auth-card'], ['heading', '.mm-auth-card h1'], ['description', '.mm-auth-card__description'],
+          ['form', '.auth-form'], ['email', '#email'], ['password', '#password'], ['confirmation', '#confirm-password'],
+          ['submit', '.auth-form button[type="submit"]'], ['links', '.auth-links'], ['footer', '.mm-auth-card__footer'],
+        ].flatMap(([name, selector]) => {
+          const element = globalThis.document.querySelector(selector)
+          return element ? [[name, element.getBoundingClientRect().toJSON()]] : []
+        }))
+        const loadingAuth = ['login', 'signup', 'password-reset'].includes(name) ? await page.evaluate(measureAuth) : null
+        if (loadingAuth) {
+          await expect(page.locator('.mm-auth-card')).toHaveAttribute('inert', '')
+          await expect(page.locator('.mm-auth-card')).toHaveAttribute('aria-hidden', 'true')
+          await expect(page.locator('.mm-auth-card')).toHaveAttribute('aria-busy', 'true')
+        }
         if (name === 'new') {
           await expect(page.locator('.mm-form-identity')).toHaveAttribute('inert', '')
           await expect(page.locator('.mm-form-identity')).toHaveAttribute('aria-hidden', 'true')
@@ -304,6 +319,13 @@ try {
         await page.waitForTimeout(200)
         await page.screenshot({ path: path.join(output, `${stamp}-loaded.png`) })
         await assertRouteFrame()
+        if (loadingAuth) {
+          const loadedAuth = await page.evaluate(measureAuth)
+          assert.deepEqual(Object.keys(loadingAuth), Object.keys(loadedAuth), `${stamp}: loading auth structure matches the form`)
+          for (const [part, loading] of Object.entries(loadingAuth)) {
+            for (const dimension of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(loading[dimension] - loadedAuth[part][dimension]) <= 2, `${stamp}: ${part} ${dimension} shifts when loading completes`)
+          }
+        }
         if (name.startsWith('edit-')) {
           await expect(page.getByRole('heading', { name: 'Recipe unavailable', exact: true })).toBeVisible()
           await expect.poll(async () => {

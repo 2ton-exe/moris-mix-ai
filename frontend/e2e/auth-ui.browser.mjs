@@ -313,6 +313,7 @@ try {
   // Reflow at 200% and keyboard focus keep the login controls visible and operable.
   const zoom = await newAuthContext(1440)
   await zoom.page.goto(`${origin}login`)
+  await expect(zoom.page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
   await zoom.page.evaluate(() => { globalThis.document.documentElement.style.zoom = '2' })
   assert.equal(await zoom.page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)
   await expect(zoom.page.locator('.mm-auth-cover')).toBeHidden()

@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router'
+import { AuthPageSkeleton } from '../auth/AuthPageSkeleton'
 import { AIChefSkeleton } from '../ai-chef/AIChefSkeleton'
 import { LoadingState } from '../components/LoadingState'
 import { RecipeEditorSkeleton } from '../recipe-form/RecipeEditorSkeleton'
@@ -81,11 +82,8 @@ export function JournalRouteLoading({ message }: { message: string }) {
     </>
     return <><span className="visually-hidden" role="status">{message}</span><div aria-busy="true" aria-hidden="true" inert><h1><span className="mm-skeleton-line" /></h1><p className="intro"><span className="mm-skeleton-line" /><span className="mm-skeleton-line" /></p>{home && actions}{note}{!home && <>{note}{actions}</>}</div></>
   }
-  if (pathname === '/login' || pathname === '/signup') {
-    const signup = pathname === '/signup'
-    const fields = signup ? ['Email', 'Password', 'Confirm password'] : ['Email', 'Password']
-    return <><span className="visually-hidden" role="status">{message}</span><div className="auth-form mm-loading-fields" aria-busy="true" aria-hidden="true" inert><h1>{signup ? 'Create your account' : 'Welcome back'}</h1><p><span className="mm-skeleton-line" /></p>{fields.map(label => <div className="auth-field" key={label}><span>{label}</span><span className="mm-skeleton-line mm-skeleton-field" /></div>)}<span className="mm-skeleton-line mm-skeleton-action" /></div></>
-  }
+  if (pathname === '/login' || pathname === '/signup') return <AuthPageSkeleton
+    mode={pathname === '/signup' ? 'signup' : new URLSearchParams(search).get('flow') === 'recovery' ? 'recovery' : 'login'} message={message} />
   if (pathname === '/auth/callback' || pathname === '/verify-email') return <LoadingState message={message} />
   return <><span className="visually-hidden" role="status">{message}</span><div aria-busy="true" aria-hidden="true" inert>
     <h1><span className="mm-skeleton-line" /></h1>

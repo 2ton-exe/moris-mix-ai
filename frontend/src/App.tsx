@@ -52,17 +52,17 @@ function PublicJournalFrame() {
     pageClassName={pathname.endsWith('/try-a-revision') ? 'mm-revision-sample-sheet' : demo ? 'mm-demo-sheet' : 'mm-public-page'}><Outlet /></JournalShell>
 }
 
-function RouteFrame({ frame, children }: { frame: 'auth' | 'public' | 'mounted'; children: ReactNode }) {
+function RouteFrame({ frame, children }: { frame: 'auth' | 'auth-scene' | 'public' | 'mounted'; children: ReactNode }) {
   if (frame === 'mounted') return children
-  if (frame === 'auth') return <JournalAuthScene><main className="mm-auth-main">
-    <JournalAuthCard eyebrow="Your journal" mood="think">{children}</JournalAuthCard>
+  if (frame === 'auth' || frame === 'auth-scene') return <JournalAuthScene><main className="mm-auth-main">
+    {frame === 'auth-scene' ? children : <JournalAuthCard eyebrow="Your journal" mood="think">{children}</JournalAuthCard>}
   </main></JournalAuthScene>
   return <JournalShell publicNavigation={frame === 'public'}>{children}</JournalShell>
 }
 
 const routeElement = (element: ReactNode, message: string, frame: Parameters<typeof RouteFrame>[0]['frame'] = 'mounted') => (
   <RouteLoadBoundary resetKey={isValidElement(element) ? element.key ?? element.type : element}
-    wrapError={(error) => <RouteFrame frame={frame}>{error}</RouteFrame>}>
+    wrapError={(error) => <RouteFrame frame={frame === 'auth-scene' ? 'auth' : frame}>{error}</RouteFrame>}>
     <Suspense fallback={<RouteFrame frame={frame}><JournalRouteLoading message={message} /></RouteFrame>}>{element}</Suspense>
   </RouteLoadBoundary>
 )
@@ -85,8 +85,8 @@ export const createAppRouteElements = () => (
         <Route path="/auth/callback" element={routeElement(<EmailVerificationPage callback />, 'Opening your verification link…', 'auth')} />
         <Route element={<AuthReady />}>
           <Route element={<GuestRoute />}>
-            <Route path="/login" element={routeElement(<AuthPage key="login" mode="login" />, 'Opening sign-in…', 'auth')} />
-            <Route path="/signup" element={routeElement(<AuthPage key="signup" mode="signup" />, 'Opening sign-up…', 'auth')} />
+            <Route path="/login" element={routeElement(<AuthPage key="login" mode="login" />, 'Opening sign-in…', 'auth-scene')} />
+            <Route path="/signup" element={routeElement(<AuthPage key="signup" mode="signup" />, 'Opening sign-up…', 'auth-scene')} />
           </Route>
           <Route path="/verify-email" element={routeElement(<EmailVerificationPage />, 'Opening email verification…', 'auth')} />
           <Route element={<ProtectedRoute />}>

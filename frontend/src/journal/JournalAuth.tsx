@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type ComponentPropsWithoutRef, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { BrandMark } from './BrandMark'
 import { KitchenBackground } from './KitchenBackground'
@@ -42,6 +42,7 @@ export function JournalAuthCard({
   mood = 'happy',
   focusHeading = false,
   children,
+  ...attributes
 }: {
   eyebrow?: string
   title?: string
@@ -49,12 +50,12 @@ export function JournalAuthCard({
   mood?: MoriMood
   focusHeading?: boolean
   children: ReactNode
-}) {
+} & Pick<ComponentPropsWithoutRef<'div'>, 'aria-busy' | 'aria-hidden' | 'inert'>) {
   const heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
     if (focusHeading) heading.current?.focus()
   }, [focusHeading, title])
-  return <PaperCard className="mm-auth-card" surface="parchment">
+  return <PaperCard {...attributes} className="mm-auth-card" surface="parchment">
     <Tape variant="sage" className="mm-auth-card__tape" />
     <PaperClip className="mm-auth-card__clip" />
     <div className="mm-auth-card__heading">
