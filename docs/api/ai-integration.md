@@ -68,8 +68,10 @@ The whole request body must be **≤ 128 KiB**. The endpoint streams the body an
 Extraction and generation share deterministic ingredient normalization with
 manual recipe writes: recognized unit aliases become canonical values, unknown
 units remain trimmed custom values, and unspecified quantities stay `null`.
-Supplied quantities must be positive numbers; fractions in source notes are
-returned as numeric quantities. Units are bounded to 100 characters without
+Supplied quantities must be positive numbers. The prompt asks the model to parse
+fractions in source notes into numeric quantities, but the server does not derive
+quantities from the notes; a stated fraction may still return `quantity: null`.
+Units are bounded to 100 characters without
 control characters. `quantityText` is an amount override, not a preparation note;
 it preserves any supplied quantity/unit and takes precedence only in display
 and scaling. See [ingredient amount semantics](recipes.md#ingredient-amounts-and-units).

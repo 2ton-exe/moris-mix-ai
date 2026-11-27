@@ -7,6 +7,8 @@ import { AuthContext } from '../auth/context'
 import type { AuthState } from '../auth/context'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import type { JournalLogoutGuard } from '../journal/JournalLogoutGuardContext'
+import { editorState } from '../recipe-form/draft'
+import { mapAiRecipeToDraft } from '../recipe-form/aiRecipeDraft'
 import type { SaveRecipeDraft } from '../recipe-form/submission'
 import { readQuickAiEntryDraft, writeQuickAiEntryDraft } from './draft'
 import { ExtractedRecipeReviewPage } from './ExtractedRecipeReviewPage'
@@ -317,4 +319,25 @@ it('does not expose another account’s extraction after an account change', () 
   expect(screen.getByRole('heading', { name: 'Nothing is waiting to be reviewed' })).toBeTruthy()
   expect(screen.queryByText(sourceNotes)).toBeNull()
   expect(screen.queryByDisplayValue('Garlic soy rice')).toBeNull()
+})
+
+
+it('restores legacy zero amounts and user edits, requiring correction before saving', async () => {
+  const recipe = { ...handoff.recipe, ingredients: [{ name: 'rice', quantity: 0, unit: 'cup', inferred: false }] }
+  const initial = mapAiRecipeToDraft(recipe)
+  if (!initial) throw new Error('Legacy recipe must initialize')
+  const reviewDraft = { ...editorState(initial), title: 'My edited legacy rice' }
+  sessionStorage.setItem('moris-mix:quick-ai-entry:v1:cook-a', JSON.stringify({
+    notes: sourceNotes, handoff: { ...handoff, recipe }, reviewDraft,
+  }))
+  const { save } = renderReview()
+  expect(screen.getByLabelText('Recipe title')).toHaveProperty('value', reviewDraft.title)
+  expect(screen.getByLabelText('Ingredient 1 quantity')).toHaveProperty('value', '0')
+  saveRecipe()
+  expect(save).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('Ingredient 1 quantity'), { target: { value: '2' } })
+  saveRecipe()
+  await waitFor(() => expect(save).toHaveBeenCalledOnce())
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ title: reviewDraft.title,
+    ingredients: [expect.objectContaining({ quantity: 2 })] }), expect.anything())
 })

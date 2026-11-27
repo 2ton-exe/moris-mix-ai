@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { apiClient } from '../api/config'
 import { ingredientInputSchema } from '../api/ingredient'
+import { recipeInitialDraftSchema } from '../recipe-form/draft'
 import type { RecipeRequest } from '../recipes/types'
 
 const nullableToOptional = <T extends z.ZodTypeAny>(schema: T) =>
@@ -30,6 +31,11 @@ export const extractedRecipeSchema = z.object({
   ingredients: z.array(ingredientInputSchema),
   instructions: sequentialInstructionsSchema,
   flavor_scores: nullableToOptional(flavorScoresSchema.optional()),
+})
+
+/** Stored previews may contain legacy amounts; fresh model responses stay strict. */
+export const storedExtractedRecipeSchema = extractedRecipeSchema.extend({
+  ingredients: z.array(ingredientInputSchema.or(recipeInitialDraftSchema.shape.ingredients.element)),
 })
 
 export const extractRecipeResponseSchema = z.object({ recipe: extractedRecipeSchema })

@@ -99,7 +99,7 @@ export const ExtractedRecipeSchema = z.object({
  * user-safe (for example "not in your pantry").
  */
 export const SubstitutionSchema = z.object({
-  original: z.string().min(1),
+  original: z.string().trim().min(1),
   replacement: z.string().min(1),
   reason: z.string().min(1).optional(),
 });

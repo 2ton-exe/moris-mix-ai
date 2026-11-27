@@ -1,4 +1,4 @@
-import { extractRecipeResponseSchema } from './extractRecipe'
+import { storedExtractedRecipeSchema } from './extractRecipe'
 import type { QuickAiEntryHandoff } from './extractRecipe'
 import { recipeEditorStateSchema } from '../recipe-form/draft'
 import type { RecipeEditorState } from '../recipe-form/draft'
@@ -88,9 +88,9 @@ export function readQuickAiEntryDraftResult(userId: string, storage?: Storage): 
   let reviewDraft: RecipeEditorState | null | undefined
   if ('handoff' in value && typeof value.handoff === 'object' && value.handoff !== null && !Array.isArray(value.handoff)) {
     const candidate = value.handoff as Record<string, unknown>
-    const parsed = extractRecipeResponseSchema.safeParse({ recipe: candidate.recipe })
+    const parsed = storedExtractedRecipeSchema.safeParse(candidate.recipe)
     if (candidate.saved === false && candidate.sourceNotes === value.notes && parsed.success) {
-      handoff = { sourceNotes: value.notes, recipe: parsed.data.recipe, saved: false }
+      handoff = { sourceNotes: value.notes, recipe: parsed.data, saved: false }
       if ('reviewDraft' in value) {
         const parsedReviewDraft = recipeEditorStateSchema.safeParse(value.reviewDraft)
         reviewDraft = parsedReviewDraft.success ? parsedReviewDraft.data : null

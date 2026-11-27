@@ -10,6 +10,8 @@ import type { AuthState } from '../auth/context'
 import { MoriCompanion } from '../mori/MoriCompanion'
 import { MoriCompanionProvider } from '../mori/MoriCompanionContext'
 import { JournalShell } from '../journal/JournalShell'
+import { editorState } from '../recipe-form/draft'
+import { mapAiRecipeToDraft } from '../recipe-form/aiRecipeDraft'
 import type { SaveRecipeDraft } from '../recipe-form/submission'
 import { lineageApi, LineageApiError } from './lineage'
 import type { GenerateRecipeResponse } from './generateRecipe'
@@ -936,4 +938,53 @@ it('does not overwrite a newer preview while retrying failed storage', async () 
   expect(writes).not.toHaveBeenCalled()
   expect(JSON.parse(sessionStorage.getItem(`moris-mix:ai-chef:v1:${userId}`) ?? 'null').handoff.response.recipe.title).toBe('Newer preview')
   expect(screen.getByRole('link', { name: 'Open current recipe review' })).toBeTruthy()
+})
+
+
+it('restores a legacy AI Chef preview with edits and requires a positive amount to save', async () => {
+  const recipe = { ...response.recipe, ingredients: [{ name: 'tomatoes', quantity: 0, unit: null, inferred: false }] }
+  const initial = mapAiRecipeToDraft(recipe)
+  if (!initial) throw new Error('Legacy recipe must initialize')
+  const reviewDraft = { ...editorState(initial), title: 'My edited legacy tomatoes' }
+  sessionStorage.setItem('moris-mix:ai-chef:v1:chef-cook', JSON.stringify({
+    input: { pantryItems: ['tomatoes'], pantryInput: '', preferences: '' },
+    handoff: { request: { pantryItems: ['tomatoes'] }, response: { ...response, recipe },
+      reviewDraft, selectedParentIds: [], saved: false },
+  }))
+  const { router, save } = renderChef()
+  await act(() => router.navigate('/app/chef/review'))
+  expect(screen.getByLabelText('Recipe title')).toHaveProperty('value', reviewDraft.title)
+  fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
+  expect(screen.getByLabelText('Ingredient 1 quantity')).toHaveProperty('value', '0')
+  fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+  expect(save).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('Ingredient 1 quantity'), { target: { value: '2' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+  await waitFor(() => expect(save).toHaveBeenCalledOnce())
+})
+
+it('recovers legacy saved previews and parent links without creating another recipe', async () => {
+  const recipe = { ...response.recipe, ingredients: [{ name: 'tomatoes', quantity: 0, unit: null, inferred: false }] }
+  const initial = mapAiRecipeToDraft(recipe)
+  if (!initial) throw new Error('Legacy recipe must initialize')
+  const reviewDraft = { ...editorState(initial), title: 'Edited before the partial save' }
+  sessionStorage.setItem('moris-mix:ai-chef:v1:chef-cook', JSON.stringify({
+    input: { pantryItems: ['tomatoes'], pantryInput: '', preferences: '' },
+    handoff: { request: { pantryItems: ['tomatoes'] }, response: { ...response, recipe }, reviewDraft,
+      selectedParentIds: [response.parents[0].id], savedRecipeId, lineageStatus: 'pending', saved: false },
+  }))
+  vi.spyOn(lineageApi, 'get').mockResolvedValue({ lineage: [] })
+  const saveLineage = vi.spyOn(lineageApi, 'save').mockResolvedValue({ lineage: [{
+    id: '66666666-6666-4666-8666-666666666666', parent_recipe_id: response.parents[0].id,
+    child_recipe_id: savedRecipeId, created_at: '2026-11-07T00:00:00.000Z',
+  }] })
+  const { router, save } = renderChef()
+  await act(() => router.navigate('/app/chef/review'))
+  const restored = JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff
+  expect(restored).toMatchObject({ savedRecipeId, lineageStatus: 'pending',
+    selectedParentIds: [response.parents[0].id], reviewDraft: { title: reviewDraft.title } })
+  fireEvent.click(await screen.findByRole('button', { name: 'Check and retry parent links' }))
+  await screen.findByText('Recipe and selected parent links saved.')
+  expect(saveLineage).toHaveBeenCalledWith(savedRecipeId, [response.parents[0].id], [response.parents[0].id], response.candidate_token, expect.anything())
+  expect(save).not.toHaveBeenCalled()
 })

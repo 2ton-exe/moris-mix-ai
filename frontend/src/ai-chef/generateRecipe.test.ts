@@ -108,3 +108,10 @@ describe('AI Chef request and response contract', () => {
     expect(generateRecipeErrorMessage(http(500, 'INTERNAL_ERROR'))).not.toContain('private')
   })
 })
+
+
+it('rejects zero amounts from new generation responses', () => {
+  expect(generateRecipeResponseSchema.safeParse({ ...generated, recipe: {
+    ...recipe, ingredients: [{ name: 'tomatoes', quantity: 0, unit: null, inferred: false }],
+  } }).success).toBe(false)
+})

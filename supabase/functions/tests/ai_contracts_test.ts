@@ -248,3 +248,16 @@ Deno.test("write and AI schemas require positive supplied quantities and safe bo
     0,
   );
 });
+
+
+Deno.test("GeneratedRecipeSchema normalizes matching substitution and ingredient names", () => {
+  const result = GeneratedRecipeSchema.parse({
+    ...MOCK_GENERATED_RECIPE,
+    recipe: { ...MOCK_EXTRACTED_RECIPE, ingredients: [
+      { name: " soy sauce ", quantity: 1, unit: "tbsp", inferred: false },
+    ] },
+    substitutions: [{ original: " soy sauce ", replacement: "tamari" }],
+  });
+  assertEquals(result.recipe.ingredients[0].name, "soy sauce");
+  assertEquals(result.substitutions[0].original, "soy sauce");
+});
