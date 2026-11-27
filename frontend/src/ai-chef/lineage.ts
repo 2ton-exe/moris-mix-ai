@@ -135,6 +135,16 @@ function parseResponse(value: unknown, childRecipeId: string, selectedParentIds?
 
 export function createLineageApi(client: AuthenticatedLineageClient = apiClient) {
   return {
+    async renew(candidateToken: string, selectedParentIds: string[], request: RecipeRequest): Promise<string> {
+      const parsed = lineageRequestSchema.safeParse({ candidate_token: candidateToken, parent_recipe_ids: selectedParentIds })
+      if (!parsed.success) throw new LineageApiError('validation')
+      let response: unknown
+      try { response = await client.postAuthenticatedJson('/functions/v1/recipes/lineage-authorization', parsed.data, request) }
+      catch (error) { throw mapApiError(error) }
+      const authorization = z.object({ candidate_token: lineageRequestSchema.shape.candidate_token }).safeParse(response)
+      if (!authorization.success) throw new LineageApiError('invalid-response')
+      return authorization.data.candidate_token
+    },
     async save(
       childRecipeId: string,
       candidateParentIds: string[],
@@ -175,7 +185,7 @@ export const lineageApi = createLineageApi()
 export function lineageFailureMessage(error: unknown) {
   const reason = error instanceof LineageApiError ? error.reason : 'unavailable'
   if (reason === 'expired-token') {
-    return 'Your recipe was saved, but the authorization for its parent links expired. Your recipe is safe; this preview cannot be used to add those links now.'
+    return 'Your recipe was saved, but the authorization for its parent links expired. Your recipe is safe; retry recipe links to refresh authorization and finish linking this same recipe.'
   }
   if (reason === 'invalid-token' || reason === 'wrong-user' || reason === 'unauthorized') {
     return 'Your recipe was saved, but Mori could not verify permission to link the selected parents. Your recipe is safe, and the links were not confirmed.'

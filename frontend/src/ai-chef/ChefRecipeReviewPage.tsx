@@ -15,7 +15,7 @@ import { useRecipe } from '../recipes/queries'
 import { IngredientEmoji } from '../recipe-form/IngredientEmojiView'
 import type { RecipeDraft, RecipeEditorState } from '../recipe-form/draft'
 import type { SaveRecipeDraft } from '../recipe-form/submission'
-import { confirmedSave } from '../recipe-form/submission'
+import { confirmedSave, RecipeSubmissionError } from '../recipe-form/submission'
 import { mapAiRecipeToDraft } from '../recipe-form/aiRecipeDraft'
 import { useRecipeSave } from '../recipe-form/useRecipeSave'
 import { useUnsavedChangesGuard } from '../recipe-form/useUnsavedChangesGuard'
@@ -73,6 +73,7 @@ async function persistOrReconcileLineage(
   userId: string,
   signal: AbortSignal,
   checkBeforePost: boolean,
+  authorization?: string,
 ): Promise<LineageAttempt> {
   const candidateChildId = handoff.savedRecipeId
   const selected = safeSelectedParentIds(handoff)
@@ -110,11 +111,12 @@ async function persistOrReconcileLineage(
 
   try {
     if (!handoff.response.candidate_token) throw new LineageApiError('validation')
+    const candidateToken = authorization ?? await lineageApi.renew(handoff.response.candidate_token, selected, request)
     const response = await lineageApi.save(
       childId,
       candidates,
       selected,
-      handoff.response.candidate_token,
+      candidateToken,
       request,
     )
     if (lineageMatchesSelection(response, childId, selected)) return { status: 'confirmed', message: '' }
@@ -265,72 +267,81 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   }
 
   async function submit(draft: RecipeDraft, context: { signal: AbortSignal }) {
-    const confirmation = await recipeSave(draft, context)
-    if (!confirmedSave(confirmation) || !handoff) return confirmation
-    const reviewKey = moriReviewKeyFromState(location.state)
-    if (typeof reviewKey === 'number') markReviewCompleted(reviewKey)
-    setConfirmedTitle(draft.title)
-    setSaved(true)
-    if (handoff.savedRecipeId) {
+    setLineageBusy(true)
+    try {
+      let authorization: string | undefined
+      const parentsForAuthorization = handoff ? safeSelectedParentIds(handoff) : []
+      if (handoff && !handoff.savedRecipeId && parentsForAuthorization.length) {
+        try {
+          if (!handoff.response.candidate_token) throw new LineageApiError('validation')
+          authorization = await lineageApi.renew(handoff.response.candidate_token, parentsForAuthorization, { userId, signal: context.signal })
+        } catch { throw new RecipeSubmissionError('parent-links-unavailable') }
+      }
+      const confirmation = await recipeSave(draft, context)
+      if (!confirmedSave(confirmation) || !handoff) return confirmation
+      const reviewKey = moriReviewKeyFromState(location.state)
+      if (typeof reviewKey === 'number') markReviewCompleted(reviewKey)
+      setConfirmedTitle(draft.title)
+      setSaved(true)
+      if (handoff.savedRecipeId) {
+        return {
+          ...confirmation,
+          statusMessage: lineageStatus === 'confirmed'
+            ? handoff.selectedParentIds.length > 0 ? 'Recipe and selected parent links saved.' : 'Recipe saved.'
+            : 'Recipe saved. Parent links still need attention.',
+        }
+      }
+
+      const selectedParentIds = safeSelectedParentIds(handoff)
+      const progress: ChefReviewHandoff = {
+        ...handoff,
+        reviewDraft: reviewDraftRef.current,
+        selectedParentIds,
+        savedRecipeId: confirmation.id,
+        lineageStatus: selectedParentIds.length > 0 ? 'pending' : 'confirmed',
+        saved: false,
+      }
+      setLineageStatus(progress.lineageStatus ?? 'confirmed')
+      setLineageMessage(selectedParentIds.length > 0
+        ? 'Your recipe is saved. Mori is saving the selected parent links now.'
+        : '')
+      const checkpoint = persistHandoffProgress(progress)
+      if (!checkpoint?.persisted) {
+        if (selectedParentIds.length > 0) {
+          setLineageMessage('Your recipe is saved, but this browser could not save its parent-link recovery details.')
+        }
+        return {
+          ...confirmation,
+          statusMessage: selectedParentIds.length > 0
+            ? 'Recipe saved. Parent links are waiting for this browser to save their recovery details.'
+            : 'Recipe saved.',
+        }
+      }
+      if (selectedParentIds.length === 0) {
+        clearHandoffAfterSave()
+        return { ...confirmation, statusMessage: 'Recipe saved.' }
+      }
+      if (lineageLock.current) return { ...confirmation, statusMessage: 'Recipe saved. Parent links still need attention.' }
+
+      lineageLock.current = true
+      let outcome: LineageAttempt
+      try {
+        outcome = await persistOrReconcileLineage(progress, userId, context.signal, false, authorization)
+      } finally {
+        lineageLock.current = false
+      }
+      setLineageStatus(outcome.status)
+      setLineageMessage(outcome.message)
+      const updated: ChefReviewHandoff = { ...progress, lineageStatus: outcome.status }
+      const savedProgress = persistHandoffProgress(updated)
+      if (outcome.status === 'confirmed' && savedProgress?.persisted) clearHandoffAfterSave()
       return {
         ...confirmation,
-        statusMessage: lineageStatus === 'confirmed'
-          ? handoff.selectedParentIds.length > 0 ? 'Recipe and selected parent links saved.' : 'Recipe saved.'
+        statusMessage: outcome.status === 'confirmed'
+          ? 'Recipe and selected parent links saved.'
           : 'Recipe saved. Parent links still need attention.',
       }
-    }
-
-    const selectedParentIds = safeSelectedParentIds(handoff)
-    const progress: ChefReviewHandoff = {
-      ...handoff,
-      reviewDraft: reviewDraftRef.current,
-      selectedParentIds,
-      savedRecipeId: confirmation.id,
-      lineageStatus: selectedParentIds.length > 0 ? 'pending' : 'confirmed',
-      saved: false,
-    }
-    setLineageStatus(progress.lineageStatus ?? 'confirmed')
-    setLineageMessage(selectedParentIds.length > 0
-      ? 'Your recipe is saved. Mori is saving the selected parent links now.'
-      : '')
-    const checkpoint = persistHandoffProgress(progress)
-    if (!checkpoint?.persisted) {
-      if (selectedParentIds.length > 0) {
-        setLineageMessage('Your recipe is saved, but this browser could not save its parent-link recovery details.')
-      }
-      return {
-        ...confirmation,
-        statusMessage: selectedParentIds.length > 0
-          ? 'Recipe saved. Parent links are waiting for this browser to save their recovery details.'
-          : 'Recipe saved.',
-      }
-    }
-    if (selectedParentIds.length === 0) {
-      clearHandoffAfterSave()
-      return { ...confirmation, statusMessage: 'Recipe saved.' }
-    }
-    if (lineageLock.current) return { ...confirmation, statusMessage: 'Recipe saved. Parent links still need attention.' }
-
-    lineageLock.current = true
-    setLineageBusy(true)
-    let outcome: LineageAttempt
-    try {
-      outcome = await persistOrReconcileLineage(progress, userId, context.signal, false)
-    } finally {
-      lineageLock.current = false
-      setLineageBusy(false)
-    }
-    setLineageStatus(outcome.status)
-    setLineageMessage(outcome.message)
-    const updated: ChefReviewHandoff = { ...progress, lineageStatus: outcome.status }
-    const savedProgress = persistHandoffProgress(updated)
-    if (outcome.status === 'confirmed' && savedProgress?.persisted) clearHandoffAfterSave()
-    return {
-      ...confirmation,
-      statusMessage: outcome.status === 'confirmed'
-        ? 'Recipe and selected parent links saved.'
-        : 'Recipe saved. Parent links still need attention.',
-    }
+    } finally { setLineageBusy(false) }
   }
 
   function retryStorage() {
@@ -365,7 +376,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   }
 
   async function retryLineage() {
-    if (!handoff || !handoff.savedRecipeId || lineageStatus !== 'pending' || lineageLock.current || storageIssue) return
+    if (!handoff || !handoff.savedRecipeId || !['pending', 'expired'].includes(lineageStatus) || lineageLock.current || storageIssue) return
     lineageLock.current = true
     setLineageBusy(true)
     setLineageMessage('Your recipe is saved. Mori is checking whether the selected parent links were already saved.')
@@ -443,7 +454,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     handoff={handoff}
     saved={saved}
     selectedParentIds={safeSelectedParentIds(handoff)}
-    selectionDisabled={saved || Boolean(handoff.savedRecipeId) || revision}
+    selectionDisabled={saved || Boolean(handoff.savedRecipeId) || revision || lineageBusy}
     selectionAnnouncement={selectionAnnouncement}
     lineageStatus={lineageStatus}
     lineageMessage={lineageMessage}
@@ -632,7 +643,7 @@ function ChefGenerationNotice({
         : 'Mori did not suggest any journal recipes for this idea.'}</p>}
       {saved && lineageMessage && <div className="mm-ai-chef__lineage-recovery" role={lineageBusy ? 'status' : 'alert'}>
         <p>{lineageMessage}</p>
-        {lineageStatus === 'pending' && handoff.savedRecipeId && <button
+        {(lineageStatus === 'pending' || lineageStatus === 'expired') && handoff.savedRecipeId && <button
           className="button button-secondary mm-button--small"
           type="button"
           disabled={lineageBusy || storageUnavailable}

@@ -139,10 +139,12 @@ Deno.test("verifyCandidateToken rejects expired and not-yet-valid tokens", async
     now: new Date(now.getTime() - 2 * 60 * 60 * 1000),
     ttlSeconds: MIN_CANDIDATE_TOKEN_TTL_SECONDS,
   });
-  assertEquals(
-    await verifyCandidateToken(expired, { userId: USER_A, secret: TEST_SECRET, now }),
-    { ok: false, reason: "expired" },
-  );
+  const expiredResult = await verifyCandidateToken(expired, { userId: USER_A, secret: TEST_SECRET, now });
+  assertEquals(expiredResult.ok, false);
+  if (expiredResult.ok || expiredResult.reason !== "expired") throw new Error("Expected authenticated expired claims");
+  assertEquals(expiredResult.claims.sub, USER_A);
+  assertEquals(expiredResult.claims.parent_recipe_ids, [PARENT_1]);
+  assertEquals(await verifyCandidateToken(expired, { userId: USER_B, secret: TEST_SECRET, now }), { ok: false, reason: "wrong_user" });
 
   const future = await signCandidateToken({
     userId: USER_A,
@@ -169,7 +171,7 @@ Deno.test("verifyCandidateToken rejects the wrong user", async () => {
 });
 
 Deno.test("verifyCandidateToken rejects malformed tokens and unsupported versions", async () => {
-  const cases: Array<{ token: string; reason: CandidateTokenErrorReason }> = [
+  const cases: Array<{ token: string; reason: Exclude<CandidateTokenErrorReason, "expired"> }> = [
     { token: "", reason: "malformed" },
     { token: "not-a-token", reason: "malformed" },
     { token: "v1.only-two-parts", reason: "malformed" },

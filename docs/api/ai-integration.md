@@ -392,7 +392,23 @@ or recovery record. Keep service-role credentials on the backend.
 - Quota windows strictly track calendar dates in UTC (`utcDateString()`).
 - The client `Retry-After` duration is calculated as the exact number of seconds remaining until next UTC midnight (`secondsUntilNextUtcDay()`), bounded between 1 and 86,400 seconds.
 
+Focused revisions whose source recipe cannot fit the existing 8 KiB JSON output
+limit return `422 REVISION_SOURCE_TOO_LARGE` before quota reservation or provider
+admission. The cook can edit the saved recipe directly; the recipe and notes
+remain unchanged and the rejected request uses no AI quota.
+
 ## Save-time candidate membership (AI-07)
+
+Before creating a recipe with selected parents, review renews authorization through
+`POST /recipes/lineage-authorization` using `{ candidate_token, parent_recipe_ids }`.
+This authenticated endpoint verifies the original HMAC and user even if the token
+has expired, requires every selected ID to belong to that signed candidate set,
+and checks that the user still owns every selected parent. It returns a fresh
+`{ candidate_token }` for those parents with the normal 15-minute lifetime. It
+does not create recipes, write links, call the AI provider, or reserve AI quota.
+A failed preflight leaves the draft unsaved and available for retry. Already saved
+copies with expired links can renew and retry links using their existing child ID.
+The ordinary lineage save endpoint continues to reject expired tokens.
 
 `POST /generate-recipe` returns `candidate_token`; `POST /recipes/:id/lineage`
 requires it as `candidate_token` in the request body.
@@ -412,7 +428,9 @@ requires it as `candidate_token` in the request body.
 - `GET /recipes/:id/lineage`, BE-11 ownership checks and PostgreSQL RLS are unchanged.
 - The token is stateless. Within its TTL the same user can replay it with the same
   allowed parent set (for example, attach the same suggested parents to a second saved
-  recipe). It cannot be replayed for another user, another parent set, or after expiry.
+  recipe). It cannot authorize a lineage save for another user, another parent set,
+  or after expiry. Renewal checks the original signature and current ownership
+  before issuing a new token.
 
 | Env var | Role |
 | ------- | ---- |

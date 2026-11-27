@@ -164,6 +164,7 @@ function openReviewDetail(action: string, name: string) {
 }
 
 beforeEach(() => {
+  vi.spyOn(lineageApi, 'renew').mockImplementation(async (token) => token)
   localStorage.clear()
   sessionStorage.clear()
   matchMediaDescriptor ??= Object.getOwnPropertyDescriptor(window, 'matchMedia')
@@ -998,11 +999,36 @@ describe('AI Chef pantry and review workflow', () => {
     expect(save).toHaveBeenCalledOnce()
   })
 
+  it('keeps the draft unsaved if parent authorization cannot renew, then retries without regenerating', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    vi.mocked(lineageApi.renew).mockRejectedValueOnce(new LineageApiError('unavailable'))
+    const save = vi.fn(async () => ({ id: savedRecipeId }))
+    vi.spyOn(lineageApi, 'save').mockResolvedValue({ lineage: [{ id: '44444444-4444-4444-8444-444444444444', parent_recipe_id: response.parents[0].id, child_recipe_id: savedRecipeId, created_at: '2026-11-27T00:00:00Z' }] })
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    await advanceChefReviewToSave()
+    fireEvent.click(screen.getByRole('checkbox', { name: /Garden rice/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('nothing has been saved')
+    expect(save).not.toHaveBeenCalled()
+    const stored = JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff
+    expect(stored.savedRecipeId).toBeUndefined()
+    expect(stored.selectedParentIds).toEqual([response.parents[0].id])
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await screen.findByText('Recipe and selected parent links saved.')
+    expect(save).toHaveBeenCalledOnce()
+    expect(generateRecipeApi.generate).toHaveBeenCalledOnce()
+    expect(lineageApi.renew).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(lineageApi.renew).mock.invocationCallOrder[1]).toBeLessThan(save.mock.invocationCallOrder[0])
+  })
+
   it('keeps the saved recipe and selected parents when the candidate token has expired', async () => {
     vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
     const save = vi.fn(async () => ({ id: savedRecipeId }))
-    const saveLineage = vi.spyOn(lineageApi, 'save').mockRejectedValue(new LineageApiError('expired-token'))
-    const getLineage = vi.spyOn(lineageApi, 'get')
+    const saveLineage = vi.spyOn(lineageApi, 'save').mockRejectedValueOnce(new LineageApiError('expired-token')).mockResolvedValueOnce({ lineage: [{ id: '44444444-4444-4444-8444-444444444444', parent_recipe_id: response.parents[0].id, child_recipe_id: savedRecipeId, created_at: '2026-11-27T00:00:00Z' }] })
+    const getLineage = vi.spyOn(lineageApi, 'get').mockResolvedValue({ lineage: [] })
     renderChef({ save })
     addIngredient('rice')
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
@@ -1013,7 +1039,7 @@ describe('AI Chef pantry and review workflow', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('authorization for its parent links expired')
     expect(screen.getByText('Recipe saved. Parent links still need attention.')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Retry recipe links' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Retry recipe links' })).toBeTruthy()
     expect(save).toHaveBeenCalledOnce()
     expect(saveLineage).toHaveBeenCalledOnce()
     expect(getLineage).not.toHaveBeenCalled()
@@ -1021,6 +1047,14 @@ describe('AI Chef pantry and review workflow', () => {
     expect(progress.savedRecipeId).toBe(savedRecipeId)
     expect(progress.selectedParentIds).toEqual([response.parents[0].id])
     expect(progress.lineageStatus).toBe('expired')
+    vi.mocked(lineageApi.renew).mockResolvedValueOnce('v1.renewed-for-same-copy')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry recipe links' }))
+    await waitFor(() => expect(saveLineage).toHaveBeenCalledTimes(2))
+    expect(saveLineage.mock.calls[1][0]).toBe(savedRecipeId)
+    expect(saveLineage.mock.calls[1][3]).toBe('v1.renewed-for-same-copy')
+    expect(save).toHaveBeenCalledOnce()
+    expect(generateRecipeApi.generate).toHaveBeenCalledOnce()
+
   })
 
   it('removes only the selected instance of a repeated ingredient recovered from a preview', () => {

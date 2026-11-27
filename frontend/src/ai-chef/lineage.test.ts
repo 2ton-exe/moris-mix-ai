@@ -139,3 +139,13 @@ describe('authenticated AI Chef lineage API', () => {
     expect(new LineageApiError('expired-token').ambiguous).toBe(false)
   })
 })
+
+it('renews the signed selected parents without creating a recipe', async () => {
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ candidate_token: 'v1.renewed-token' }))
+  await expect(createLineageApi(client(fetchImpl)).renew(token, [parentOne], request)).resolves.toBe('v1.renewed-token')
+  const [url, options] = fetchImpl.mock.calls[0]
+  expect(url).toBe('https://recipes.example.test/functions/v1/recipes/lineage-authorization')
+  expect(options?.method).toBe('POST')
+  const body = options?.body
+  expect(typeof body === 'string' && JSON.parse(body)).toEqual({ parent_recipe_ids: [parentOne], candidate_token: token })
+})

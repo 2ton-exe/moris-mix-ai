@@ -11,13 +11,14 @@ export interface RecipeEditorRecord { id: string; userId: string; values: Recipe
 
 export type FieldViolation = { path: string; code: 'required' | 'invalid' | 'too-long' }
 export class RecipeSubmissionError extends Error {
-  constructor(readonly kind: 'unavailable' | 'validation' | 'notes-unsupported', readonly violations: FieldViolation[] = []) {
+  constructor(readonly kind: 'unavailable' | 'validation' | 'notes-unsupported' | 'parent-links-unavailable', readonly violations: FieldViolation[] = []) {
     super('Recipe submission could not be completed.')
     this.name = 'RecipeSubmissionError'
   }
 }
 
 export function submissionMessage(error: unknown) {
+  if (error instanceof RecipeSubmissionError && error.kind === 'parent-links-unavailable') return 'Could not refresh the selected recipe links. Your draft is still here; nothing has been saved. Try saving again.'
   if (error instanceof RecipeSubmissionError && error.kind === 'notes-unsupported') {
     return 'Notes are not supported by this recipe service yet. Your draft is still here; nothing has been saved.'
   }

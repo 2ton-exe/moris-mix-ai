@@ -159,6 +159,13 @@ async function handleApiRequest(request, response) {
     } : generated)
     return
   }
+  if (url.pathname === '/functions/v1/recipes/lineage-authorization' && request.method === 'POST') {
+    assert.ok(body.parent_recipe_ids.length > 0)
+    const preview = activeScenario === 'expanded-review' ? expandedSuggestion : generated
+    assert.equal(body.candidate_token, preview.candidate_token)
+    sendJson(request, response, 200, { candidate_token: preview.candidate_token })
+    return
+  }
   if (url.pathname === '/functions/v1/recipes' && request.method === 'POST') {
     recipeWrites.push({ body, authorization: request.headers.authorization })
     sendJson(request, response, 201, { recipe: {
@@ -179,7 +186,7 @@ async function handleApiRequest(request, response) {
   if (lineageRoute && request.method === 'POST') {
     const childRecipeId = decodeURIComponent(lineageRoute[1])
     lineageWrites.push({ childRecipeId, body, authorization: request.headers.authorization })
-    if (activeScenario === 'expired') {
+    if (activeScenario === 'expired' && lineageWrites.length === 1) {
       sendJson(request, response, 403, {
         error: { code: 'FORBIDDEN', message: 'Not authorized.', details: [{ code: 'expired_token' }] },
       })
@@ -796,7 +803,7 @@ try {
   await page.getByRole('button', { name: 'Save recipe' }).click()
   await expect(page.getByRole('alert')).toContainText('authorization for its parent links expired')
   await expect(page.getByText('Recipe saved. Parent links still need attention.')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Retry recipe links' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retry recipe links' })).toBeVisible()
   assert.equal(recipeWrites.length, 1)
   assert.equal(lineageWrites.length, 1)
   assert.equal(requests.filter((request) => request.path.endsWith('/lineage') && request.method === 'GET').length, 0)
@@ -804,7 +811,14 @@ try {
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Your recipe is saved.' })).toBeVisible()
   assert.equal(recipeWrites.length, 1, 'Expired-token recovery created a second recipe')
-  process.stdout.write('AI Chef browser acceptance Scenario D passed: expired authorization preserves the saved recipe without retry or regeneration.\n')
+  await page.getByRole('button', { name: 'Retry recipe links' }).click()
+  await expect(page.getByRole('button', { name: 'Retry recipe links' })).toHaveCount(0)
+  await expect(page.getByText('Recipe and selected parent links saved.')).toBeVisible()
+  assert.equal(recipeWrites.length, 1, 'Authorization renewal created a second recipe')
+  assert.equal(lineageWrites.length, 2)
+  assert.equal(lineageWrites[1].childRecipeId, scenarioRecipeIds.expired)
+  assert.equal(requests.filter((request) => request.path === '/functions/v1/generate-recipe').length, 1)
+  process.stdout.write('AI Chef browser acceptance Scenario D passed: expired authorization renews links on the same saved recipe without regeneration.\n')
 
   await beginScenario(page, origin, 'uncertain')
   await page.getByRole('checkbox', { name: /Sunday fried rice/ }).check()

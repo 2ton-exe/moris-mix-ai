@@ -25,7 +25,7 @@ import {
   RecipeResponseSchema,
   UpdateRecipeRequestSchema,
 } from "../_shared/schemas.ts";
-import { signCandidateToken } from "../_shared/ai/candidateToken.ts";
+import { signCandidateToken, verifyCandidateToken } from "../_shared/ai/candidateToken.ts";
 import {
   evaluateHostedRlsPrerequisites,
   isLegacyServiceRoleJwt,
@@ -9744,4 +9744,73 @@ Deno.test("Authenticated GET /recipes search handles whitespace-only terms and r
   assertEquals(resForeign.status, 500);
   const bodyForeign = await resForeign.json();
   assertEquals(bodyForeign.error?.code, "INTERNAL_ERROR");
+});
+
+Deno.test("Candidate authorization renews only signed owned selections without creating recipes or using AI", async () => {
+  const expired = await candidateTokenFor([LINEAGE_PARENT_ID_1], {
+    now: new Date(Date.now() - 2 * 60 * 60 * 1000),
+  });
+  let owned = [{ id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID }];
+  let ownershipReads = 0;
+  const json = (body: unknown) =>
+    new Response(JSON.stringify(body), {
+      headers: { "Content-Type": "application/json" },
+    });
+  const fetch: typeof globalThis.fetch = (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    assertEquals(init?.method ?? "GET", "GET");
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(
+        json({
+          id: VERIFIED_USER_ID,
+          aud: "authenticated",
+          role: "authenticated",
+          email: VERIFIED_USER_EMAIL,
+        }),
+      );
+    }
+    assertEquals(url.pathname, "/rest/v1/recipes");
+    assertEquals(url.searchParams.get("user_id"), "eq." + VERIFIED_USER_ID);
+    ownershipReads++;
+    return Promise.resolve(json(owned));
+  };
+  const renew = (
+    candidate_token: string,
+    parent_recipe_ids = [LINEAGE_PARENT_ID_1],
+  ) =>
+    handler(
+      new Request(
+        "http://localhost/functions/v1/recipes/lineage-authorization",
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer " + VALID_TEST_JWT,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ candidate_token, parent_recipe_ids }),
+        },
+      ),
+      { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch },
+    );
+  const renewed = await renew(expired);
+  assertEquals(renewed.status, 200);
+  const token = (await renewed.json()).candidate_token;
+  const verified = await verifyCandidateToken(token, {
+    userId: VERIFIED_USER_ID,
+    secret: TEST_CANDIDATE_TOKEN_SECRET,
+  });
+  assertEquals(verified.ok, true);
+  if (!verified.ok) throw new Error("Expected a current authorization");
+  assertEquals(verified.claims.parent_recipe_ids, [LINEAGE_PARENT_ID_1]);
+  const reads = ownershipReads;
+  assertEquals((await renew(expired + "tampered")).status, 403);
+  assertEquals((await renew(expired, [LINEAGE_PARENT_ID_2])).status, 403);
+  const anotherUser = await candidateTokenFor([LINEAGE_PARENT_ID_1], {
+    userId: "88888888-8888-4888-8888-888888888888",
+    now: new Date(Date.now() - 2 * 60 * 60 * 1000),
+  });
+  assertEquals((await renew(anotherUser)).status, 403);
+  assertEquals(ownershipReads, reads);
+  owned = [];
+  assertEquals((await renew(expired)).status, 404);
 });
