@@ -25,7 +25,7 @@ import {
   RecipeResponseSchema,
   UpdateRecipeRequestSchema,
 } from "../_shared/schemas.ts";
-import { signCandidateToken } from "../_shared/ai/candidateToken.ts";
+import { signCandidateToken, verifyCandidateToken } from "../_shared/ai/candidateToken.ts";
 import {
   evaluateHostedRlsPrerequisites,
   isLegacyServiceRoleJwt,
@@ -2302,6 +2302,100 @@ Deno.test("Authenticated PATCH /recipes/:id updates notes without modifying raw_
   const rawInputBody = await patchRawInputRes.json();
   assertEquals(rawInputBody.recipe.raw_input, "New separate raw input prompt");
   assertEquals(rawInputBody.recipe.notes, "Updated secret garlic glaze note");
+});
+
+Deno.test("Conditional PATCH preserves notes when a second cook update uses a stale recipe version", async () => {
+  const originalVersion = "2026-10-20T06:00:00+00:00";
+  const newVersion = "2026-10-21T06:00:00+00:00";
+  let recipe = persistedRecipeRow({
+    notes: "Original",
+    updated_at: originalVersion,
+  });
+  let exists = true;
+  let writes = 0;
+  const fetch: typeof globalThis.fetch = (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    const json = (body: unknown) => Promise.resolve(Response.json(body));
+    if (url.pathname === "/auth/v1/user") {
+      return json({
+        id: VERIFIED_USER_ID,
+        aud: "authenticated",
+        role: "authenticated",
+      });
+    }
+    assertEquals(url.pathname, "/rest/v1/recipes");
+    assertEquals(url.searchParams.get("id"), "eq." + CREATED_RECIPE_ID);
+    assertEquals(url.searchParams.get("user_id"), "eq." + VERIFIED_USER_ID);
+    assertEquals(url.searchParams.has("notes"), false);
+    if (init?.method === "PATCH") {
+      writes++;
+      assertEquals(url.searchParams.get("updated_at"), "eq." + originalVersion);
+      if (!exists || recipe.updated_at !== originalVersion) return json([]);
+      const update = JSON.parse(String(init.body));
+      assertEquals(Object.keys(update), ["notes" in update ? "notes" : "cooked_at"]);
+      recipe = { ...recipe, ...update, updated_at: newVersion };
+      return json([recipe]);
+    }
+    assertEquals(init?.method, "GET");
+    assertEquals(url.searchParams.get("select"), "id");
+    assertEquals(url.searchParams.has("updated_at"), false);
+    return json(exists ? [{ id: recipe.id }] : []);
+  };
+  const update = (body: unknown) =>
+    handler(
+      new Request(
+        `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${VALID_TEST_JWT}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        },
+      ),
+      { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch },
+    );
+
+  const invalid = await update({
+    title: "No notes submitted",
+    expected_updated_at: originalVersion,
+  });
+  assertEquals(invalid.status, 400);
+  assertEquals(writes, 0);
+
+  const saved = await update({
+    notes: "Original\n\nFirst cook",
+    expected_updated_at: originalVersion,
+  });
+  assertEquals(saved.status, 200);
+  assertEquals((await saved.json()).recipe.updated_at, newVersion);
+
+  const stale = await update({
+    notes: "Original\n\nSecond cook",
+    expected_updated_at: originalVersion,
+  });
+  assertEquals(stale.status, 409);
+  assertEquals((await stale.json()).error.code, "RECIPE_CHANGED");
+  assertEquals(recipe.notes, "Original\n\nFirst cook");
+
+  const staleDate = await update({ cooked_at: "2026-11-27", expected_updated_at: originalVersion });
+  assertEquals(staleDate.status, 409);
+  assertEquals((await staleDate.json()).error.code, "RECIPE_CHANGED");
+
+  recipe = { ...recipe, updated_at: originalVersion };
+  const savedDate = await update({ cooked_at: "2026-11-27", expected_updated_at: originalVersion });
+  assertEquals(savedDate.status, 200);
+  assertEquals((await savedDate.json()).recipe.cooked_at, "2026-11-27");
+  assertEquals(recipe.notes, "Original\n\nFirst cook");
+
+  exists = false;
+  const missing = await update({
+    notes: "Unknown cook",
+    expected_updated_at: originalVersion,
+  });
+  assertEquals(missing.status, 404);
+  assertEquals((await missing.json()).error.code, "NOT_FOUND");
 });
 
 Deno.test("Authenticated PATCH /recipes/:id clears notes with explicit null while preserving raw_input and vice versa", async () => {
@@ -9650,4 +9744,73 @@ Deno.test("Authenticated GET /recipes search handles whitespace-only terms and r
   assertEquals(resForeign.status, 500);
   const bodyForeign = await resForeign.json();
   assertEquals(bodyForeign.error?.code, "INTERNAL_ERROR");
+});
+
+Deno.test("Candidate authorization renews only signed owned selections without creating recipes or using AI", async () => {
+  const expired = await candidateTokenFor([LINEAGE_PARENT_ID_1], {
+    now: new Date(Date.now() - 2 * 60 * 60 * 1000),
+  });
+  let owned = [{ id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID }];
+  let ownershipReads = 0;
+  const json = (body: unknown) =>
+    new Response(JSON.stringify(body), {
+      headers: { "Content-Type": "application/json" },
+    });
+  const fetch: typeof globalThis.fetch = (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    assertEquals(init?.method ?? "GET", "GET");
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(
+        json({
+          id: VERIFIED_USER_ID,
+          aud: "authenticated",
+          role: "authenticated",
+          email: VERIFIED_USER_EMAIL,
+        }),
+      );
+    }
+    assertEquals(url.pathname, "/rest/v1/recipes");
+    assertEquals(url.searchParams.get("user_id"), "eq." + VERIFIED_USER_ID);
+    ownershipReads++;
+    return Promise.resolve(json(owned));
+  };
+  const renew = (
+    candidate_token: string,
+    parent_recipe_ids = [LINEAGE_PARENT_ID_1],
+  ) =>
+    handler(
+      new Request(
+        "http://localhost/functions/v1/recipes/lineage-authorization",
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer " + VALID_TEST_JWT,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ candidate_token, parent_recipe_ids }),
+        },
+      ),
+      { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch },
+    );
+  const renewed = await renew(expired);
+  assertEquals(renewed.status, 200);
+  const token = (await renewed.json()).candidate_token;
+  const verified = await verifyCandidateToken(token, {
+    userId: VERIFIED_USER_ID,
+    secret: TEST_CANDIDATE_TOKEN_SECRET,
+  });
+  assertEquals(verified.ok, true);
+  if (!verified.ok) throw new Error("Expected a current authorization");
+  assertEquals(verified.claims.parent_recipe_ids, [LINEAGE_PARENT_ID_1]);
+  const reads = ownershipReads;
+  assertEquals((await renew(expired + "tampered")).status, 403);
+  assertEquals((await renew(expired, [LINEAGE_PARENT_ID_2])).status, 403);
+  const anotherUser = await candidateTokenFor([LINEAGE_PARENT_ID_1], {
+    userId: "88888888-8888-4888-8888-888888888888",
+    now: new Date(Date.now() - 2 * 60 * 60 * 1000),
+  });
+  assertEquals((await renew(anotherUser)).status, 403);
+  assertEquals(ownershipReads, reads);
+  owned = [];
+  assertEquals((await renew(expired)).status, 404);
 });

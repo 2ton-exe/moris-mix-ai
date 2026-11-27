@@ -185,6 +185,9 @@
 }
 .mm-journal-page :where(h1, h2, h3) { font-family: var(--mm-font-serif); letter-spacing: -.025em; }
 .mm-journal-page h1, .mm-journal-flyleaf h1 { font-size: clamp(28px, 2.5vw, 36px); line-height: 1.15; }
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-journal-flyleaf h1 { letter-spacing: -.025em; text-wrap: balance; }
+}
 .mm-journal-page .intro { color: var(--mm-color-ink-soft); }
 .mm-journal-page .journal-heading { margin-top: 0; flex-wrap: wrap; }
 .mm-journal-page .journal-heading > div { flex: 1 1 280px; min-width: 0; }
@@ -290,7 +293,8 @@
   .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page']::after { bottom: calc(-2px - var(--mm-journal-tab-pop)); height: calc(3px + var(--mm-journal-tab-pop)); }
   .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page']:hover { box-shadow: 0 -1px 3px -1px rgb(40 24 10 / .12); }
 }
-.mm-desk :where(a, button, input, textarea, select, [tabindex]):focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 4px; }
+.mm-desk :where(a, button, input, textarea, select, summary, [tabindex]):focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 4px; }
+.mm-desk h1[tabindex='-1']:focus-visible { border-radius: var(--mm-radius-paper); outline-width: 2px; }
 .mm-desk-toolbar :is(.mm-desk-brand, .mm-bookmark):focus-visible { outline-color: var(--mm-color-parchment-50); }
 .mm-bookmarks .mm-bookmark:focus-visible { outline-offset: 2px; }
 .mm-skip-link { position: absolute; z-index: 100; left: 12px; top: 12px; padding: 12px; color: var(--mm-color-ink); background: var(--mm-color-fresh); transform: translateY(-200%); }

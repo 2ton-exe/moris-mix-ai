@@ -75,8 +75,10 @@ try {
       assert.ok(overflow.document <= overflow.viewport, `${label}: overflow at ${width}px: ${JSON.stringify(overflow)}`)
       const controls = [...await bookmarks.getByRole('link').all(), moriBookmark]
       for (const control of controls) {
-        const box = await control.boundingBox()
-        assert.ok(box && box.width >= 44 && box.height >= 44)
+        await expect.poll(async () => {
+          const box = await control.boundingBox()
+          return Boolean(box && box.width >= 44 && box.height >= 44)
+        }).toBe(true)
         await page.keyboard.press('Tab')
         await control.focus()
         const focusState = await control.evaluate((element) => ({
@@ -100,6 +102,16 @@ try {
       await page.screenshot({ path: path.join(outputDir, `${width}-${label}.png`) })
     }
 
+    if (width === 1440) {
+      await page.goto(origin + 'app/unwritten-route')
+      const recovery = page.getByRole('region', { name: 'Page not found' })
+      await expect(recovery.getByRole('heading', { name: 'Page not found' })).toBeVisible({ timeout: 15_000 })
+      await expect(bookmarks).toBeVisible()
+      await expect(recovery.getByRole('link', { name: 'Browse saved recipes', exact: true })).toHaveAttribute('href', '/app/recipes')
+      await expect(recovery.getByRole('link', { name: 'Search saved recipes', exact: true })).toHaveAttribute('href', '/app/recipes?view=index')
+      await expect(recovery.getByRole('link', { name: 'Return home' })).toHaveCount(0)
+    }
+
     // Dashboard aliases, real links and browser history all use the production router.
     await page.goto(`${origin}app`)
     await expect(page.getByRole('heading', { name: 'Saved recipes (1)' })).toBeVisible()
@@ -120,7 +132,7 @@ try {
     await expect(bookmarks.getByRole('link', { name: 'AI Chef' })).toHaveAttribute('aria-current', 'page')
     await checkShell('chef')
     await page.goto(`${origin}app`)
-    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i, level: 1 })).toBeVisible()
     if (width === 1440) {
       const devtools = await context.newCDPSession(page)
       for (const type of ['protanopia', 'deuteranopia', 'tritanopia']) {
@@ -130,10 +142,10 @@ try {
       await devtools.send('Emulation.setEmulatedVisionDeficiency', { type: 'none' })
       await devtools.detach()
     }
-    await page.getByRole('link', { name: 'Search & index' }).click()
+    await page.getByRole('link', { name: 'Search saved recipes' }).first().click()
     const results = page.getByRole('region', { name: 'Recipe index results' })
     await expect(results.getByText('End of results.')).toBeVisible()
-    assert.ok(await results.getByRole('link', { name: `Open recipe ${recipe.title}` }).evaluate((link) => {
+    assert.ok(await results.getByRole('link', { name: `Open recipe ${recipe.title}, entry 1` }).evaluate((link) => {
       const end = link.closest('[role=region]').querySelector('.discovery-end')
       return Boolean(link.compareDocumentPosition(end) & globalThis.Node.DOCUMENT_POSITION_FOLLOWING)
     }), 'Collection completion follows the recipe results')
@@ -146,7 +158,7 @@ try {
     await quickTab.click()
     await backToIndex.click()
     await expect(page).toHaveURL(indexUrl)
-    await page.getByRole('link', { name: 'Browse journal' }).click()
+    await page.getByRole('link', { name: 'Browse saved recipes' }).click()
     const companion = page.getByRole('group', { name: 'Mori companion' })
     const model = await moriBookmark.boundingBox()
     assert.ok(model, 'Mori has a visible draggable character')
@@ -182,7 +194,7 @@ try {
     await page.getByRole('link', { name: 'Skip to journal content' }).focus()
     await page.keyboard.press('Enter')
     assert.equal(await page.getByRole('main').evaluate((element) => element === globalThis.document.activeElement), true)
-    await page.getByRole('link').filter({ has: page.getByRole('heading', { name: recipe.title, exact: true }) }).click()
+    await page.getByRole('link', { name: 'Open recipe ' + recipe.title }).click()
     await expect(page.getByRole('heading', { name: recipe.title, exact: true })).toBeVisible()
     await expect(page).toHaveURL(`${origin}app/recipes/${recipe.id}`)
     await checkShell('detail')
@@ -206,8 +218,8 @@ try {
     await expect(page).toHaveURL(`${origin}app/recipes`)
     // Start a fresh history segment for the existing dashboard/detail Back/Forward assertions.
     await page.goto(`${origin}app`)
-    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
-    await page.getByRole('link').filter({ has: page.getByRole('heading', { name: recipe.title, exact: true }) }).click()
+    await expect(page.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i, level: 1 })).toBeVisible()
+    await page.getByRole('link', { name: 'Open recipe ' + recipe.title }).click()
     await expect(page.getByRole('heading', { name: recipe.title, exact: true })).toBeVisible()
     // Physical layers and containment must not trap a fixed confirmation dialog.
     const deleteButton = page.getByRole('button', { name: 'Delete recipe', exact: true })
@@ -221,7 +233,7 @@ try {
     await expect(deleteDialog).toHaveCount(0)
     await expect(deleteButton).toBeFocused()
     await page.goBack()
-    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i, level: 1 })).toBeVisible()
     await page.goForward()
     await expect(page.getByRole('heading', { name: recipe.title, exact: true })).toBeVisible()
     await page.reload()
@@ -260,19 +272,20 @@ try {
     await expect(page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
 
     await page.goto(`${origin}app/recipes/new`)
+    await expect(page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
     await checkShell('create')
     await page.goto(`${origin}app/recipes/missing`)
     await expect(page.getByRole('heading', { name: 'Recipe unavailable' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible()
     await checkShell('error')
     await bookmarks.getByRole('link', { name: 'My recipes' }).click()
-    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i, level: 1 })).toBeVisible()
     await page.evaluate(async () => {
       await Promise.all(['Figtree', 'Fraunces', 'Caveat'].map((font) => globalThis.document.fonts.load(`16px ${font}`)))
       await globalThis.document.fonts.ready
     })
     const materials = await page.evaluate(async () => {
-      const urls = ['.mm-desk', '.mm-journal-board--right'].flatMap((selector) => {
+      const urls = ['.kitchen-background', '.mm-journal-board--right'].flatMap((selector) => {
         const background = globalThis.getComputedStyle(globalThis.document.querySelector(selector)).backgroundImage
         return [...background.matchAll(/url\("?([^")]+)"?\)/g)].map((match) => match[1]).filter((url) => !url.startsWith('data:'))
       })
@@ -287,6 +300,7 @@ try {
       await page.evaluate(() => globalThis.localStorage.removeItem('moris-mix:mori-companion'))
       await page.reload()
       await page.setViewportSize({ width: 720, height: 450 })
+      await expect(page.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i, level: 1 })).toBeVisible()
       await settleJournalLayout(page)
       await page.evaluate(() => new Promise((resolve) => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))))
       await expect(page.getByRole('complementary', { name: 'Journal bookplate' })).toBeHidden()
@@ -306,7 +320,7 @@ try {
   const guest = await browser.newContext()
   const page = await guest.newPage()
   await page.route(`${apiOrigin}/**`, (route) => route.fulfill({ status: 200, json: { recipe } }))
-  for (const route of ['app', 'app/recipes', `app/recipes/${recipe.id}`, 'app/recipes/new', `app/recipes/${recipe.id}/edit`]) {
+  for (const route of ['app', 'app/unwritten-route', 'app/recipes', `app/recipes/${recipe.id}`, 'app/recipes/new', `app/recipes/${recipe.id}/edit`]) {
     await page.goto(`${origin}${route}`)
     await expect(page).toHaveURL(`${origin}login`)
   }
@@ -315,6 +329,13 @@ try {
     await expect(page).toHaveURL(`${origin}${route}`)
     await expect(page.locator('.mm-journal-book')).toHaveCount(['home', 'about', 'demo-recipe', 'unwritten-route'].includes(route) ? 1 : 0)
   }
+  await expect(page.getByRole('link', { name: 'Go to home page' })).toHaveAttribute('href', '/home')
+  await expect(page.getByRole('link', { name: 'View sample recipe' })).toHaveAttribute('href', '/demo-recipe')
+  await page.route('**/src/pages/PublicJournalPages.tsx*', (route) => route.abort())
+  await page.goto(`${origin}home`)
+  await expect(page.getByRole('alert')).toHaveText('Could not load this page. Reload to try again.')
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Journal sections' }).getByRole('link', { name: 'Home' })).toBeVisible()
   await guest.close()
   process.stdout.write(`Guest gates and public routes passed. Screenshots: ${outputDir}\n`)
 } finally {

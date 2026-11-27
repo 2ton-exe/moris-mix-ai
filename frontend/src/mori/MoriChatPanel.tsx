@@ -1,7 +1,7 @@
 import { formatIngredient } from '../../../supabase/functions/_shared/ingredient-units.ts'
 import { useContext, useEffect, useLayoutEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useLocation, useNavigate, type NavigateOptions } from 'react-router'
-import { BookOpen, ChefHat, CookingPot, NotebookPen } from 'lucide-react'
+import { BookOpen, ChefHat, CookingPot, NotebookPen, Search } from 'lucide-react'
 import { useNavigationConfirmation } from '../recipe-form/navigationConfirmation'
 import { SuggestedPrompts } from './SuggestedPrompts'
 import { promptCaret, suggestionContext } from './suggestions'
@@ -21,6 +21,7 @@ import { missingRecipeDetails, parsePantryPrompt, requestedNavigation, requested
 import { useMoriActivity, useMoriReviewCompletion } from './MoriCompanionContext'
 import { findSavedRecipesByTitle } from '../recipes/findSavedRecipesByTitle'
 import { formatCookedDate } from '../recipes/recipePresentation'
+import { useJournalMedia } from '../journal/useJournalMedia'
 import { RecipeSourceContext } from '../recipes/source'
 import type { RecipeSummary } from '../recipes/types'
 
@@ -29,6 +30,11 @@ type MoriRetry = { kind: 'create'; notes: string } | { kind: 'suggest'; prompt: 
 type MoriCooldowns = Partial<Record<MoriRetry['kind'], number>>
 type RecipeMatch = { recipe: RecipeSummary; label: string }
 type Message = { id: number; role: 'user' | 'assistant'; text: string | null; draft?: MoriDraft; reviewKey?: number; matches?: RecipeMatch[] }
+
+function markScrollEdges(element: HTMLElement) {
+  element.toggleAttribute('data-overflow-before', element.scrollTop > 2)
+  element.toggleAttribute('data-overflow-after', element.scrollTop + element.clientHeight < element.scrollHeight - 2)
+}
 
 function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; onReview: (draft: MoriDraft, anchor: HTMLButtonElement) => void; disabled: boolean; consumed: boolean }) {
   if (draft.kind === 'suggest') {
@@ -75,6 +81,7 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
 }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const dialogue = useJournalMedia('(min-width: 1100px) and (min-height: 640px) and (hover: hover) and (pointer: fine)')
   const currentLocationKey = useRef(location.key)
   useLayoutEffect(() => { currentLocationKey.current = location.key }, [location.key])
   const { discovery } = useContext(RecipeSourceContext)
@@ -83,6 +90,9 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
   const arrival = useRef<{ path: string; message: string } | null>(null)
   const [navigating, setNavigating] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
+  const hasMessages = messages.length > 0
+  const [historyOverflow, setHistoryOverflow] = useState(false)
+  const [readingHistory, setReadingHistory] = useState(false)
   const [mode, setMode] = useState<'create' | 'suggest' | null>(null)
   const [composer, setComposer] = useState('')
   const [pendingTask, setPendingTask] = useState<'recipe' | 'search' | null>(null)
@@ -149,6 +159,19 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
   }
 
   useEffect(() => { if (log.current && followLatest.current) log.current.scrollTop = log.current.scrollHeight }, [messages])
+  useLayoutEffect(() => {
+    if (!dialogue || !log.current || typeof ResizeObserver === 'undefined') return
+    const element = log.current
+    const measure = () => {
+      setHistoryOverflow(element.scrollHeight > element.clientHeight + 2)
+      if (followLatest.current) element.scrollTop = element.scrollHeight
+      markScrollEdges(element)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    measure()
+    return () => observer.disconnect()
+  }, [dialogue, messages])
   useEffect(() => () => {
     const active = request.current
     if (active) { request.current = null; requestId.current++; window.clearTimeout(active.timeout); active.controller.abort() }
@@ -277,10 +300,15 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
           ? Array.from(document.querySelectorAll<HTMLAnchorElement>('.mm-journal-book > .mm-journal-spread .mm-bookmarks--journal a'))
             .find((link) => link.pathname === journalTab) ?? null
           : anchor ?? log.current?.querySelector<HTMLElement>(`[data-message-id="${acknowledgment}"]`) ?? null
-        void playNavigation(findAnchor, controller.signal).then((continueNavigation) => {
-          if (continueNavigation === false) cancel(false)
-          else finish()
-        }, finish)
+        if (journalTab) {
+          void playNavigation(findAnchor, controller.signal)
+          finish()
+        } else {
+          void playNavigation(findAnchor, controller.signal).then((continueNavigation) => {
+            if (continueNavigation === false) cancel(false)
+            else finish()
+          }, finish)
+        }
       } else {
         finish()
       }
@@ -447,6 +475,8 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
     if (pending || navigationRequest.current) return
     const text = composer.trim()
     if (!text) return
+    followLatest.current = true
+    setReadingHistory(false)
 
     const title = requestedRecipeTitle(text)
     if (title) {
@@ -538,6 +568,7 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
         say('assistant', 'There’s already an AI Chef draft in progress, so I left it untouched. Open the pantry page to review it first.')
         return false
       }
+      if (!('pantryItems' in draft.handoff.request)) return false
       if (write && !sameSuggestion) writeChefDraft(userId, {
         input: { pantryItems: draft.handoff.request.pantryItems, pantryInput: '', preferences: draft.handoff.request.preferences ?? '' },
         handoff: draft.handoff,
@@ -576,56 +607,76 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
       ? 'Example: “rice, eggs; quick and spicy”'
       : ''
 
-  return <div className="mori-chat">
-    <p className="mori-chat-task">{mode === 'create' ? 'Creating a recipe' : mode === 'suggest' ? 'Finding a cooking idea' : 'How can I help?'}</p>
-    <div ref={log} className="mori-chat-log" role="log" tabIndex={messages.length ? 0 : -1} aria-label="Chat with Mori" aria-busy={pending} aria-relevant="additions" onScroll={(event) => {
-      const element = event.currentTarget
-      followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32
-    }}>
-      {messages.map((message) => {
-        const reviewKey = message.reviewKey
-        return <article key={message.id} className="mori-chat-message" data-role={message.role} data-message-id={message.id} aria-label={message.role === 'user' ? 'You' : 'Mori'}>
-          {message.text && <p>{message.text}</p>}
-          {message.id === messages.at(-1)?.id && retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={navigating || retryWaitFor(retryRequest.kind) > 0} onClick={() => {
-            const retry = retryRequest
-            setRetryRequest(null)
-            if (retry.kind === 'create') void createRecipe(retry.notes)
-            else void suggestRecipe(retry.prompt)
-          }}>Retry same request</button></div>}
-          {message.matches && <div className="mori-chat-preview" role="group" aria-label="Matching saved recipes">
-            {message.matches.map(({ recipe, label }) =>
-              <button key={recipe.id} type="button" disabled={pending || navigating} onClick={(event) => openRecipe(recipe, event.currentTarget)}>{label}</button>
-            )}
-          </div>}
-          {message.draft && reviewKey !== undefined && <DraftCard draft={message.draft} disabled={pending || navigating} consumed={completedReviewKeys.has(reviewKey)} onReview={(draft, anchor) => openReview(draft, reviewKey, anchor)} />}
-        </article>
-      })}
-    {(['create', 'suggest'] as const).map((kind) => {
-      const seconds = retryWaitFor(kind)
-      return seconds > 0 && <p key={kind} role="timer" aria-live="off">Wait at least {seconds} {seconds === 1 ? 'second' : 'seconds'} before Mori can retry {kind === 'create' ? 'cooking notes' : 'pantry ideas'}.</p>
-    })}
+  const shortcuts = <nav className="mori-chat-shortcuts" aria-label="Open a journal page">
+    <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes', 'Opening your recipe collection.', { anchor: event.currentTarget, shortcut: true })}><BookOpen size={16} aria-hidden="true" /><span className="mori-chat-shortcut-label">Open recipes</span></button>
+    <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes/new', 'Opening a new recipe.', { anchor: event.currentTarget, shortcut: true })}><NotebookPen size={16} aria-hidden="true" /><span className="mori-chat-shortcut-label">Open recipe editor</span></button>
+    <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/quick-entry', 'Opening your cooking notes.', { focus: 'notes', anchor: event.currentTarget, shortcut: true })}><ChefHat size={16} aria-hidden="true" /><span className="mori-chat-shortcut-label">Open cooking notes</span></button>
+    <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/chef', 'Opening the pantry field.', { focus: 'pantry', anchor: event.currentTarget, shortcut: true })}><CookingPot size={16} aria-hidden="true" /><span className="mori-chat-shortcut-label">Open pantry</span></button>
+  </nav>
+
+  const context = suggestionContext(location.pathname)
+  const suggestions = <SuggestedPrompts navigation={dialogue ? shortcuts : undefined} context={context} busy={pending || navigating} draft={composer} preview={dialogue && context !== 'collection' && !hasMessages && !composer} onSelect={prompt => {
+        setMode(prompt.workflow)
+        setFollowUp(null)
+        setRetryRequest(null)
+        setPromptSelection(value => value + 1)
+        selectedPromptCaret.current = promptCaret(prompt.message)
+        setComposer(prompt.message)
+      }} />
+  const greeting = { collection: 'Shall we find a recipe or write one down?', reading: 'What would you change next time?', writing: 'Let’s put your recipe on paper.', notes: 'Shall we make a recipe from your notes?', pantry: 'What shall we cook with your pantry?', general: 'How can I help?' }[context]
+  return <div className="mori-chat" data-empty={!hasMessages} data-dialogue-state={hasMessages ? 'conversation' : 'engaged'}>
+    <div className="mori-chat-conversation">
+      <p className="mori-chat-task">{dialogue && !pending && hasMessages ? retryRequest ? 'Your request is still here.' : 'Let’s keep cooking.' : mode === 'create' ? 'Creating a recipe' : mode === 'suggest' ? 'Finding a cooking idea' : dialogue ? greeting : 'How can I help?'}</p>
+      {dialogue && historyOverflow && <button className="mori-chat-history" type="button" onClick={() => {
+        followLatest.current = readingHistory
+        log.current?.scrollTo({ top: readingHistory ? log.current.scrollHeight : 0 })
+        log.current?.focus()
+      }}>{readingHistory ? 'Latest reply' : 'Earlier conversation'}</button>}
+      <div ref={log} className="mori-chat-log" role="log" tabIndex={messages.length ? 0 : -1} aria-label="Chat with Mori" aria-busy={pending} aria-relevant="additions" onScroll={(event) => {
+        const element = event.currentTarget
+        followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32
+        if (dialogue) setReadingHistory(!followLatest.current)
+        if (dialogue) markScrollEdges(element)
+      }}>
+        {messages.map((message) => {
+          const reviewKey = message.reviewKey
+          return <article key={message.id} className="mori-chat-message" data-role={message.role} data-message-id={message.id} aria-label={message.role === 'user' ? 'You' : 'Mori'}>
+            {message.text && <p>{message.text}</p>}
+            {message.id === messages.at(-1)?.id && retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={navigating || retryWaitFor(retryRequest.kind) > 0} onClick={() => {
+              const retry = retryRequest
+              setRetryRequest(null)
+              if (retry.kind === 'create') void createRecipe(retry.notes)
+              else void suggestRecipe(retry.prompt)
+            }}>Retry same request</button></div>}
+            {message.matches && <div className="mori-chat-preview" role="group" aria-label="Matching saved recipes">
+              {message.matches.map(({ recipe, label }) =>
+                <button key={recipe.id} type="button" disabled={pending || navigating} onClick={(event) => openRecipe(recipe, event.currentTarget)}>{label}</button>
+              )}
+            </div>}
+            {message.draft && reviewKey !== undefined && <DraftCard draft={message.draft} disabled={pending || navigating} consumed={completedReviewKeys.has(reviewKey)} onReview={(draft, anchor) => openReview(draft, reviewKey, anchor)} />}
+          </article>
+        })}
+        {(['create', 'suggest'] as const).map((kind) => {
+          const seconds = retryWaitFor(kind)
+          return seconds > 0 && <p key={kind} role="timer" aria-live="off">Wait at least {seconds} {seconds === 1 ? 'second' : 'seconds'} before Mori can retry {kind === 'create' ? 'cooking notes' : 'pantry ideas'}.</p>
+        })}
+      </div>
+      {pending && <div className="mori-chat-pending"><span role="status" aria-live="polite">Mori is working on your request.</span><button type="button" onClick={cancel}>Cancel</button></div>}
+      {!dialogue && suggestions}
+      {dialogue && <div className="mori-chat-tools">
+        {context === 'collection' && !hasMessages && !composer && <div className="mori-chat-quick-prompts" role="group" aria-label="Ideas for this page">
+          <button type="button" onClick={() => { setMode(null); setComposer('find my '); selectedPromptCaret.current = 8 }}><Search size={13} aria-hidden="true" />Find a saved recipe</button>
+          <button type="button" onClick={() => { const message = 'Write a recipe from these cooking notes: '; setMode('create'); setComposer(message); selectedPromptCaret.current = message.length }}><NotebookPen size={13} aria-hidden="true" />Write cooking notes</button>
+        </div>}
+        {suggestions}</div>}
+      {example && (!dialogue || !hasMessages) && <p id={`${composerId}-example`} className="mori-chat-example">{example}</p>}
+      <form className="mori-chat-composer" onSubmit={(event) => { void submit(event) }}>
+        <label className="mori-chat-label" htmlFor={composerId}>Message Mori</label>
+        <textarea id={composerId} rows={2} value={composer} disabled={pending || navigating} aria-describedby={example && (!dialogue || !hasMessages) ? `${composerId}-example` : undefined} placeholder={mode === 'create' ? 'What did you cook, and how?' : mode === 'suggest' ? 'What ingredients do you have?' : 'Tell Mori what you need…'} onChange={(event) => setComposer(event.currentTarget.value)} onKeyDown={submitOnShortcut} />
+        <button type="submit" disabled={pending || navigating || !composer.trim()}>Send</button>
+      </form>
+      {!dialogue && shortcuts}
+      <p className="mori-chat-hint">Enter a new line; press Ctrl/⌘ + Enter to send.</p>
     </div>
-    {pending && <div className="mori-chat-pending"><span role="status" aria-live="polite">Mori is working on your request.</span><button type="button" onClick={cancel}>Cancel</button></div>}
-    <SuggestedPrompts context={suggestionContext(location.pathname)} busy={pending || navigating} draft={composer} onSelect={prompt => {
-      setMode(prompt.workflow)
-      setFollowUp(null)
-      setRetryRequest(null)
-      setPromptSelection(value => value + 1)
-      selectedPromptCaret.current = promptCaret(prompt.message)
-      setComposer(prompt.message)
-    }} />
-    {example && <p id={`${composerId}-example`} className="mori-chat-example">{example}</p>}
-    <form className="mori-chat-composer" onSubmit={(event) => { void submit(event) }}>
-      <label className="mori-chat-label" htmlFor={composerId}>Message Mori</label>
-      <textarea id={composerId} rows={2} value={composer} disabled={pending || navigating} aria-describedby={example ? `${composerId}-example` : undefined} placeholder={mode === 'create' ? 'What did you cook, and how?' : mode === 'suggest' ? 'What ingredients do you have?' : 'Tell Mori what you need…'} onChange={(event) => setComposer(event.currentTarget.value)} onKeyDown={submitOnShortcut} />
-      <button type="submit" disabled={pending || navigating || !composer.trim()}>Send</button>
-    </form>
-    <nav className="mori-chat-shortcuts" aria-label="Open a journal page">
-      <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes', 'Opening your recipe collection.', { anchor: event.currentTarget, shortcut: true })}><BookOpen size={16} aria-hidden="true" />Open recipes</button>
-      <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes/new', 'Opening a new recipe.', { anchor: event.currentTarget, shortcut: true })}><NotebookPen size={16} aria-hidden="true" />Open recipe editor</button>
-      <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/quick-entry', 'Opening your cooking notes.', { focus: 'notes', anchor: event.currentTarget, shortcut: true })}><ChefHat size={16} aria-hidden="true" />Open cooking notes</button>
-      <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/chef', 'Opening the pantry field.', { focus: 'pantry', anchor: event.currentTarget, shortcut: true })}><CookingPot size={16} aria-hidden="true" />Open pantry</button>
-    </nav>
-    <p className="mori-chat-hint">Enter a new line; press Ctrl/⌘ + Enter to send.</p>
   </div>
 }

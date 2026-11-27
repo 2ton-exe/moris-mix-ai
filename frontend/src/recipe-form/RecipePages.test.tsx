@@ -1,5 +1,5 @@
 import { StrictMode, isValidElement } from 'react'
-import { createContext, useContext, useState } from 'react'
+import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen } from '@testing-library/react'
@@ -17,8 +17,10 @@ import type { RecipeSource } from '../recipes/types'
 import CreateRecipePage from '../pages/CreateRecipePage'
 import EditRecipePage from '../pages/EditRecipePage'
 import { RecipeQueryProvider } from '../recipes/RecipeQueryProvider'
+import { JournalLogoutGuardContext, type JournalLogoutGuard } from '../journal/JournalLogoutGuardContext'
 import type { RecipeEditorRecord, SaveRecipeDraft } from './submission'
 import { recipeFormFixture } from './testing/fixtures'
+import { recipeFormApi } from './api'
 
 const draft = { ...recipeFormFixture, notes: '' }
 const NativeRequest = globalThis.Request
@@ -33,7 +35,7 @@ afterEach(() => { queryClient.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks
 type PageOptions = {
   path: string; state: AuthState; save?: SaveRecipeDraft; initial?: RecipeEditorRecord
   isLoading?: boolean; loadError?: Error; loadMatchingRecordOnRouteChange?: boolean
-  history?: string[]; initialIndex?: number; source?: RecipeSource
+  history?: (string | { pathname: string; state: unknown })[]; initialIndex?: number; source?: RecipeSource
 }
 const PageOptionsContext = createContext<PageOptions | null>(null)
 
@@ -50,8 +52,19 @@ function TestNavigationControls() {
 
 function PageRoutes() {
   const options = useContext(PageOptionsContext)
+  const logoutGuard = useRef<JournalLogoutGuard | null>(null)
+  const register = useCallback((guard: JournalLogoutGuard) => {
+    logoutGuard.current = guard
+    return () => { if (logoutGuard.current === guard) logoutGuard.current = null }
+  }, [])
   if (!options) return null
-  return <AuthContext.Provider value={options.state}><Outlet /><TestNavigationControls /></AuthContext.Provider>
+  return <AuthContext.Provider value={options.state}><JournalLogoutGuardContext.Provider value={register}>
+    <Outlet /><TestNavigationControls />
+    <button type="button" onClick={() => {
+      const proceed = () => { void options.state.logout() }
+      if (logoutGuard.current?.(proceed) !== false) proceed()
+    }}>Test logout</button>
+  </JournalLogoutGuardContext.Provider></AuthContext.Provider>
 }
 
 function CreatePageFromOptions() {
@@ -106,10 +119,36 @@ function tree(options: Partial<PageOptions> = {}) {
 function click(name: string) { fireEvent.click(screen.getByRole('button', { name })) }
 function title(value: string) { fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value } }) }
 
+it.each(['/app/recipes/new', '/app/recipes/recipe-a/edit'])('guards logout before discarding dirty edits on %s', (path) => {
+  const state = authState()
+  render(tree({ path, state, initial: record() }))
+  title('Keep this private draft')
+  click('Test logout')
+  expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeTruthy()
+  expect(state.logout).not.toHaveBeenCalled()
+  click('Keep Editing')
+  expect(screen.getByDisplayValue('Keep this private draft')).toBeTruthy()
+  expect(state.logout).not.toHaveBeenCalled()
+  click('Test logout')
+  click('Discard Changes')
+  expect(state.logout).toHaveBeenCalledTimes(1)
+})
+
+it.each([true, false])('opens the method directly and focuses its first control (has steps: %s)', (hasSteps) => {
+  const initial = record()
+  render(tree({ path: '/app/recipes/recipe-a/edit?section=method', initial: {
+    ...initial, values: { ...draft, instructions: hasSteps ? draft.instructions : [] },
+  } }))
+  const control = hasSteps
+    ? screen.getByRole('textbox', { name: 'Step 1 description' })
+    : screen.getByRole('button', { name: /^Add (cooking )?step$/ })
+  expect(document.activeElement).toBe(control)
+})
+
 it.each([
-  ['/app/recipes/new', '/app/recipes/new'],
-  ['/app/quick-entry/review', '/app/quick-entry/review'],
-  ['/app/recipes/recipe-a/edit', '/app/recipes/:recipeId/edit'],
+  ['/app/recipes/new', 'recipes/new'],
+  ['/app/quick-entry/review', 'quick-entry/review'],
+  ['/app/recipes/recipe-a/edit', 'recipes/:recipeId/edit'],
   ['/app/recipes', 'recipes'],
   ['/app/quick-entry', 'quick-entry'],
 ])('keeps the production data-router route tree matching %s', (path, expectedRoute) => {
@@ -126,7 +165,7 @@ it('keeps Quick AI Entry under the protected app routes and account-scoped query
 
 it('keeps the extracted recipe review route protected and under the recipe query provider', () => {
   const matches = matchRoutes(createRoutesFromElements(createAppRouteElements()), '/app/quick-entry/review')
-  expect(matches?.at(-1)?.route.path).toBe('/app/quick-entry/review')
+  expect(matches?.at(-1)?.route.path).toBe('quick-entry/review')
   expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === ProtectedRoute)).toBe(true)
   expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === RecipeQueryProvider)).toBe(true)
 })
@@ -145,6 +184,25 @@ it('gates the create page using FE-03 protected routes without invoking the save
   expect(save).not.toHaveBeenCalled()
 })
 
+it.each(['cook-a', 'cook-b'])('uses manual notes only when the signed-in cook owns the handoff (%s)', (userId) => {
+  const save = vi.fn()
+  render(tree({ save, history: ['/app', {
+    pathname: '/app/recipes/new', state: { manualRecipe: { userId, source: 'quick-entry', notes: 'Toast the garlic gently.' } },
+  }] }))
+  expect(screen.getByRole('textbox', { name: 'Notes' })).toHaveProperty('value', userId === 'cook-a' ? 'Toast the garlic gently.' : '')
+  expect(save).not.toHaveBeenCalled()
+})
+
+it('carries pantry items into the editor without saving them', () => {
+  const save = vi.fn()
+  render(tree({ save, history: ['/app', {
+    pathname: '/app/recipes/new', state: { manualRecipe: { userId: 'cook-a', source: 'chef', ingredients: ['rice', 'eggs'] } },
+  }] }))
+  expect(screen.getByDisplayValue('rice')).toBeTruthy()
+  expect(screen.getByDisplayValue('eggs')).toBeTruthy()
+  expect(save).not.toHaveBeenCalled()
+})
+
 it('gates an edit deep link without exposing existing recipe values', () => {
   render(tree({ path: '/app/recipes/recipe-a/edit', state: authState(null), initial: record() }))
   expect(screen.getByRole('heading', { name: 'Login required' })).toBeTruthy()
@@ -157,7 +215,7 @@ it('keeps fields on both facing pages in one native form and submits them togeth
   const form = screen.getByRole('form', { name: 'Edit recipe' }) as HTMLFormElement
   expect(document.querySelectorAll('form')).toHaveLength(1)
   for (const label of ['Recipe title', 'Cooked date', 'Rating', 'Notes']) {
-    const field = screen.getByLabelText(label) as HTMLInputElement
+    const field = screen.getByLabelText(new RegExp('^' + label + '(?: \\(optional\\))?$')) as HTMLInputElement
     expect(field.closest('.mm-journal-flyleaf')).toBeTruthy()
     expect(field.form).toBe(form)
     expect(form.elements.namedItem(field.name)).toBe(field)
@@ -355,7 +413,7 @@ it('submits edited values and a nullable rating only after the adapter confirms 
   queryClient.setQueryData(recipeDetail, {})
   render(tree({ path: '/app/recipes/recipe-a/edit', initial: record(), save }))
   title('Updated rice')
-  fireEvent.change(screen.getByLabelText('Rating'), { target: { value: '' } })
+  fireEvent.change(screen.getByLabelText(/^Rating(?: \(optional\))?$/), { target: { value: '' } })
   click('Save changes')
   await screen.findByText('Recipe saved.')
   expect(save.mock.calls[0][0]).toMatchObject({ title: 'Updated rice', star_rating: null })
@@ -435,6 +493,17 @@ it('supports host-provided edit loading and missing-recipe error states', () => 
   expect(document.body.textContent).not.toContain('private details')
 })
 
+it('keeps the editor shell mounted when the recipe finishes loading', () => {
+  const view = render(tree({ path: '/app/recipes/recipe-a/edit', isLoading: true }))
+  const book = document.querySelector('.mm-journal-book')
+  expect(document.querySelector('[aria-busy="true"]')).toBeTruthy()
+  view.rerender(tree({ path: '/app/recipes/recipe-a/edit', initial: record() }))
+  expect(document.querySelector('.mm-journal-book')).toBe(book)
+  const input = screen.getByLabelText('Recipe title')
+  expect(input.closest('form') || input.getAttribute('form')).toBeTruthy()
+  expect(screen.getByDisplayValue(draft.title)).toBeTruthy()
+})
+
 it('does not initialize edit fields from another account or another route ID', () => {
   const view = render(tree({ path: '/app/recipes/recipe-a/edit', initial: record('cook-b') }))
   expect(screen.queryByLabelText('Recipe title')).toBeNull()
@@ -477,4 +546,18 @@ it('drops an old-account edit record immediately when the account changes', () =
   view.rerender(tree({ path: '/app/recipes/recipe-a/edit', initial: record(), state: authState('cook-b') }))
   expect(screen.queryByDisplayValue(draft.title)).toBeNull()
   expect(screen.queryByLabelText('Recipe title')).toBeNull()
+})
+
+it('keeps the displayed edit baseline across background refreshes and advances it after its own save', async () => {
+  const initial = { ...record(), updatedAt: '2026-11-26T00:00:00Z' }
+  const firstSaved = { ...initial, values: { ...draft, title: 'My title edit' }, updatedAt: '2026-11-27T05:00:00Z' }
+  const persist = vi.spyOn(recipeFormApi, 'save').mockResolvedValue({ id: initial.id, record: firstSaved })
+  const view = render(tree({ path: '/app/recipes/recipe-a/edit', initial }))
+  title('My title edit')
+  view.rerender(tree({ path: '/app/recipes/recipe-a/edit', initial: { ...initial, values: { ...draft, notes: 'Another tab cooked this' }, updatedAt: '2026-11-27T04:00:00Z' } }))
+  await act(async () => { click('Save changes') })
+  expect(persist).toHaveBeenNthCalledWith(1, expect.objectContaining({ title: 'My title edit', notes: draft.notes }), expect.anything(), initial.id, initial)
+  title('A second title edit')
+  await act(async () => { click('Save changes') })
+  expect(persist).toHaveBeenNthCalledWith(2, expect.objectContaining({ title: 'A second title edit' }), expect.anything(), initial.id, firstSaved)
 })

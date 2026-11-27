@@ -48,10 +48,11 @@ export function useReadingPagination(contentKey: string, single: boolean) {
         const heading = unit.querySelector<HTMLElement>('.mm-unit-heading')!
         return { id: unit.dataset.unit!, section: unit.dataset.section!, height: unit.getBoundingClientRect().height,
           headingHeight: heading.getBoundingClientRect().height + 8,
+          splittable: unit.dataset.splittable === 'true',
           }
       })
       if (items.some((item) => !item.height)) return
-      if (items.some((item) => item.height > capacity) && textChunkSize > 1) {
+      if (items.some((item) => item.splittable && item.height > capacity) && textChunkSize > 1) {
         flushSync(() => { setTextChunkSize(Math.max(1, Math.floor(textChunkSize * .7))); setLayout(null); setReadyKey(null) })
         return
       }

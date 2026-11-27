@@ -45,6 +45,25 @@ function renderForm({ single = false, reducedMotion = true, renderFrame }: {
   </MemoryRouter>)
 }
 
+it('shares desktop rating and note controls across create and edit', () => {
+  mockMatchMedia(false, true, true)
+  const { rerender } = render(<MemoryRouter><JournalShell mode="writing">
+    <RecipeForm key="edit" mode="edit" initialValues={manyRows} notesSupported />
+  </JournalShell></MemoryRouter>)
+
+  expect(document.querySelector('.recipe-form')?.classList.contains('mm-recipe-form-editor')).toBe(true)
+  expect(screen.getByRole('group', { name: 'Rating' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Clear rating' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Expand notes' })).toBeTruthy()
+
+  rerender(<MemoryRouter><JournalShell mode="writing">
+    <RecipeForm key="create" mode="create" newRecipeScrapbook notesSupported />
+  </JournalShell></MemoryRouter>)
+  expect(screen.getByRole('group', { name: 'Rating' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Unrated' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Expand notes' })).toBeTruthy()
+})
+
 function pageIndex() {
   return document.querySelector('.mm-writing-pages')?.getAttribute('data-form-page')
 }
@@ -63,7 +82,7 @@ function setScrollGeometry(element: HTMLElement, { overflowY = 'auto', scrollHei
 }
 
 function nextPage() {
-  fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
+  fireEvent.click(screen.getByRole('button', { name: /^Next(?::| Pages?$)/ }))
 }
 
 afterEach(() => {
@@ -100,7 +119,7 @@ it('does not consume PageUp on the first page or PageDown on the final page', ()
   expect(fireEvent.keyDown(first, { key: 'PageUp' })).toBe(true)
   expect(pageIndex()).toBe('0')
 
-  while (screen.queryByRole('button', { name: 'Next Pages' })) nextPage()
+  while (screen.queryByRole('button', { name: /^Next(?::| Pages?$)/ })) nextPage()
   const last = firstLeaf()
   setScrollGeometry(last, { scrollHeight: 100, clientHeight: 100 })
   const finalPage = pageIndex()
@@ -128,9 +147,9 @@ it('preserves native key behavior in controls, links, editable content, and with
   </> })
   const targets = [
     screen.getByLabelText('Recipe title'),
-    screen.getByLabelText('Cooked date'),
-    screen.getByLabelText('Rating'),
-    screen.getByRole('button', { name: 'Next Pages' }),
+    screen.getByLabelText(/^Cooked date(?: \(optional\))?$/),
+    screen.getByLabelText(/^Rating(?: \(optional\))?$/),
+    screen.getByRole('button', { name: /^Next(?::| Pages?$)/ }),
     screen.getByRole('link', { name: 'Help link' }),
     screen.getByText('Editable note'),
   ]
@@ -176,11 +195,11 @@ it('gives desktop image controls their own writing leaf', () => {
   mockMatchMedia(false, true, true)
   render(<MemoryRouter><RecipeForm mode="create" supplement={<section aria-label="Image controls">Choose a photo<input aria-label="Photo caption" defaultValue="" /></section>} /></MemoryRouter>)
   expect(screen.queryByRole('region', { name: 'Image controls' })).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
+  fireEvent.click(screen.getByRole('button', { name: /^Next(?::| Pages?$)/ }))
   expect(screen.getByRole('region', { name: 'Image controls' })).toBeTruthy()
   expect(screen.queryByLabelText('Recipe title')).toBeNull()
   fireEvent.change(screen.getByLabelText('Photo caption'), { target: { value: 'Keep this selection' } })
   fireEvent.click(screen.getByRole('button', { name: 'Previous Pages' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
+  fireEvent.click(screen.getByRole('button', { name: /^Next(?::| Pages?$)/ }))
   expect(screen.getByLabelText('Photo caption')).toHaveProperty('value', 'Keep this selection')
 })

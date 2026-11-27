@@ -1,5 +1,6 @@
 .kitchen-background {
   --tile: url('../assets/journal/textures/kitchen-tiles.webp');
+  --kitchen-tile-shade: rgb(28 31 28 / 0.14);
   --kitchen-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g' x='0' y='0' width='1' height='1'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)' opacity='.12'/%3E%3C/svg%3E");
   position: absolute;
   z-index: -1;
@@ -9,6 +10,8 @@
   isolation: isolate;
   background-color: #414541;
   background-image:
+    /* Lower the tile contrast without losing the dark kitchen stage. */
+    linear-gradient(var(--kitchen-tile-shade), var(--kitchen-tile-shade)),
     /* the middle of the counter is calmer so the journal leads */
     radial-gradient(46% 52% at 50% 52%, rgb(62 65 61 / 0.42), transparent 100%),
     /* warm window light from the upper left */
@@ -50,37 +53,41 @@
 
 /* Spoon lies along the left margin: bowl up, handle running off the edge */
 .kitchen-background__prop--spoon {
-  width: 390px;
-  left: -150px;
+  width: 330px;
+  left: -132px;
   top: 33%;
   transform: rotate(108deg);
-  filter: drop-shadow(1px 2px 1.5px rgb(0 0 0 / 0.5)) drop-shadow(6px 11px 10px rgb(0 0 0 / 0.36));
+  opacity: 0.84;
+  filter: drop-shadow(1px 2px 1.5px rgb(0 0 0 / 0.38)) drop-shadow(5px 9px 8px rgb(0 0 0 / 0.28));
 }
 
 .kitchen-background__prop--whisk {
-  width: 340px;
-  right: -104px;
+  width: 290px;
+  right: -88px;
   bottom: 9%;
   transform: rotate(-21deg);
-  filter: drop-shadow(1px 2px 1px rgb(0 0 0 / 0.55)) drop-shadow(5px 10px 9px rgb(0 0 0 / 0.34));
+  opacity: 0.84;
+  filter: drop-shadow(1px 2px 1px rgb(0 0 0 / 0.4)) drop-shadow(5px 8px 7px rgb(0 0 0 / 0.27));
 }
 
 .kitchen-background__prop--flour {
   left: 2%;
   bottom: 3.5%;
-  width: 310px;
-  opacity: 0.92;
+  width: 250px;
+  opacity: 0.72;
 }
 
 .kitchen-background__prop--sprig {
   right: -40px;
   top: 11%;
-  width: 170px;
+  width: 142px;
+  opacity: 0.76;
   transform: rotate(-19deg);
-  filter: drop-shadow(2px 3px 2px rgb(0 0 0 / 0.4)) drop-shadow(5px 9px 8px rgb(0 0 0 / 0.25));
+  filter: drop-shadow(2px 3px 2px rgb(0 0 0 / 0.32)) drop-shadow(5px 8px 7px rgb(0 0 0 / 0.2));
 }
 
 @media (max-width: 1099.98px), (max-height: 639.98px) {
+  .kitchen-background { --kitchen-tile-shade: rgb(28 31 28 / 0); }
   .kitchen-background__prop--spoon {
     width: 256px;
     left: -36px;
@@ -88,6 +95,7 @@
     bottom: 1.5%;
     transform: rotate(-16deg);
     opacity: 0.92;
+    filter: drop-shadow(1px 2px 1.5px rgb(0 0 0 / 0.5)) drop-shadow(6px 11px 10px rgb(0 0 0 / 0.36));
   }
   .kitchen-background__prop--whisk,
   .kitchen-background__prop--flour,

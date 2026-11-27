@@ -15,7 +15,7 @@ export function RecipeStarRating({ field, value, error, onChange }: {
   onChange: (value: string) => void
 }) {
   return <fieldset className="mm-recipe-star-rating" aria-describedby={field['aria-describedby']}>
-    <legend>Rating</legend>
+    <legend>Rating <small aria-hidden="true">(optional)</small></legend>
     <div className="mm-recipe-star-rating__stars">
       {[1, 2, 3, 4, 5].map((rating) => {
         const id = field.id + '-' + rating
@@ -28,7 +28,7 @@ export function RecipeStarRating({ field, value, error, onChange }: {
       })}
     </div>
     <button className="mm-recipe-star-rating__clear" type="button" disabled={!value}
-      aria-label="Clear rating" onClick={() => onChange('')}>{value ? 'Clear' : 'Unrated'}</button>
+      aria-label={value ? 'Clear rating' : 'Unrated'} onClick={() => onChange('')}>{value ? 'Clear' : 'Unrated'}</button>
     {error && <p className="field-error" id={field.id + '-error'}>{error}</p>}
   </fieldset>
 }

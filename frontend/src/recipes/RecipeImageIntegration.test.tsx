@@ -353,7 +353,7 @@ it('preserves the image selection and dirty recipe when journal navigation is ca
     target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
   })
   await screen.findByRole('img', { name: 'Selected recipe image preview' })
-  fireEvent.click(screen.getByRole('button', { name: /Back to journal/ }))
+  fireEvent.click(screen.getByRole('button', { name: /Back to recipe/ }))
   await screen.findByRole('alertdialog', { name: 'Leave without saving?' })
   fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }))
 

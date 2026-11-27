@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { JournalFacingPage } from './JournalFacingPage'
 import { JournalShell } from './JournalShell'
 import { useJournalPageTurn } from './JournalPageTurn'
-import { TURN_DURATION } from './pageTurnMotion'
+import { SINGLE_TURN_DURATION, TURN_DURATION } from './pageTurnMotion'
 
 let matchMediaDescriptor: PropertyDescriptor | undefined
 function mockMatchMedia(matches: (query: string) => boolean) {
@@ -158,7 +158,7 @@ it('uses one timing and cancels a preview when a route interrupts a single-page 
   advance()
   const layer = document.querySelector<HTMLElement>('[data-journal-page-turn]')!
   expect(layer.dataset.layout).toBe('single')
-  expect(layer.dataset.duration).toBe(String(TURN_DURATION))
+  expect(layer.dataset.duration).toBe(String(SINGLE_TURN_DURATION))
   expect(layer.querySelectorAll('.mm-turn-cast')).toHaveLength(0)
   expect(screen.getByTestId('route-state').textContent).toBe('/app/recipes · page 1 · committed 0')
   fireEvent.click(screen.getByTestId('leave-route'))
@@ -386,4 +386,21 @@ it('reads readiness only from the live single paper, not its frozen outgoing sna
   sample(1)
   expect(commit).toHaveBeenCalledTimes(1)
   expect(frames.size).toBe(0)
+})
+
+it('waits for the footer reserve before freezing a prepared destination', () => {
+  renderProbe()
+  const page = document.querySelector<HTMLElement>('.mm-journal-spread > .mm-journal-page')!
+  const footer = page.querySelector<HTMLElement>('.mm-footer-actions')!
+  Object.defineProperty(footer, 'offsetHeight', { configurable: true, value: 0 })
+  page.style.setProperty('--mm-footer-height', '90px')
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  advance()
+  expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('preparing')
+  expect(screen.getByTestId('probe-location').getAttribute('data-committed-page')).toBe('0')
+  page.style.setProperty('--mm-footer-height', '0px')
+  advance()
+  expect(document.querySelector('.mm-turn-under--right')?.textContent).toContain('Right page 1')
+  sample(1)
+  expect(screen.getByTestId('probe-location').getAttribute('data-committed-page')).toBe('1')
 })

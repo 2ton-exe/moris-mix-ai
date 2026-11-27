@@ -31,7 +31,8 @@ function isDate(value: unknown) {
 function isSummary(value: unknown): value is RecipeSummary {
   return isRecord(value) && isRecipeId(value.id) && isText(value.title) &&
     (value.star_rating == null || (isNumber(value.star_rating) && Number.isInteger(value.star_rating) && value.star_rating >= 1 && value.star_rating <= 5)) &&
-    (value.cooked_at == null || isDate(value.cooked_at))
+    (value.cooked_at == null || isDate(value.cooked_at)) &&
+    (value.notes == null || typeof value.notes === 'string')
 }
 
 function isIngredient(value: unknown) {
@@ -62,7 +63,7 @@ export function validateRecipeDetail(value: unknown, expectedId: string): Recipe
     !Array.isArray(value.ingredients) || !value.ingredients.every(isIngredient) ||
     !Array.isArray(value.instructions) || !value.instructions.every(isInstruction) ||
     !(value.flavor_scores == null || isFlavors(value.flavor_scores)) ||
-    !(value.notes == null || typeof value.notes === 'string')) {
+    (value.updated_at !== undefined && (typeof value.updated_at !== 'string' || !Number.isFinite(Date.parse(value.updated_at))))) {
     throw new InvalidRecipeData()
   }
   // Preserve extra properties (including future related/lineage data) intact.

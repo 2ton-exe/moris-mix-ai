@@ -45,6 +45,11 @@ function JournalIndex() {
   </section>
 }
 
+function ManualRecipeRoute() {
+  const location = useLocation()
+  return <output data-testid="manual-recipe-state">{JSON.stringify(location.state)}</output>
+}
+
 function renderEntry({
   extract = vi.fn<Extract>().mockResolvedValue(recipe),
   onExtracted,
@@ -61,6 +66,7 @@ function renderEntry({
       element: <JournalLayout />,
       children: [
         { path: '/app/quick-entry', element: <QuickAiEntryPage extract={extract} onExtracted={onExtracted} /> },
+        { path: '/app/recipes/new', element: <ManualRecipeRoute /> },
         { path: '/app/recipes', element: <JournalIndex /> },
       ],
     },
@@ -106,6 +112,29 @@ afterEach(() => {
 })
 
 describe('Quick AI Entry', () => {
+  it('keeps the existing single-page layout outside a desktop spread', () => {
+    renderEntry()
+
+    expect(notesField().closest('.mm-journal-page')).toBeTruthy()
+    expect(document.querySelector('.mm-journal-flyleaf .mm-quick-ai__journey')).toBeNull()
+  })
+
+  it('puts the notes task and its guidance on the matching leaves of a desktop spread', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(min-width: 1100px) and (min-height: 640px)',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }))
+    renderEntry()
+
+    const notesTask = document.querySelector('.mm-journal-page .mm-quick-ai')
+    const guidance = document.querySelector('.mm-journal-flyleaf .mm-quick-ai__journey')
+    expect(notesTask?.querySelector('h1')?.textContent).toBe('Quick AI Entry')
+    expect(notesTask?.querySelector('form')).toBeTruthy()
+    expect(guidance?.textContent).toContain('Review the draft and make any changes.')
+    expect(screen.getByRole('heading', { name: 'Quick AI Entry' })).toBeTruthy()
+  })
+
   it('focuses and highlights the notes field when Mori sends the cook there', async () => {
     const { router } = renderEntry()
     await act(() => router.navigate('/app/quick-entry', { state: { moriFocus: 'notes' } }))
@@ -159,7 +188,7 @@ describe('Quick AI Entry', () => {
     renderEntry()
 
     expect(screen.getByRole('alert').textContent).toContain('couldn\'t access session storage')
-    expect(screen.getByText(/Your notes stay available in this app while it is open/)).toBeTruthy()
+    expect(screen.getByText(/Your notes stay available while this app is open/)).toBeTruthy()
     expect(screen.queryByText(/saved in this browser session as you type/)).toBeNull()
 
     enterNotes('new notes remain editable in React state')
@@ -549,11 +578,29 @@ describe('Quick AI Entry', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('Mori could not organize those notes just now')
     expect(screen.queryByText('provider internals')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Edit Notes' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Organize my notes' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Retry extraction' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Notes' }))
-    expect(document.activeElement).toBe(notesField())
     expect(notesField().value).toBe('slow-cooked beans')
+  })
+
+  it('carries original notes into a manual recipe after AI is disabled', async () => {
+    const sourceNotes = 'garlic, chicken, and a splash of soy sauce'
+    const extract = vi.fn<Extract>().mockRejectedValue(new HttpError('http', 'private service response', 503, {
+      error: { code: 'AI_DISABLED' },
+    }))
+    const { router } = renderEntry({ extract })
+    enterNotes(sourceNotes)
+    fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('AI organizing is temporarily unavailable')
+    const link = screen.getByRole('link', { name: 'Write manually with these notes' })
+    expect(link.textContent).toContain('Write manually with these notes')
+    expect(link).toBeTruthy()
+    fireEvent.click(link)
+    await waitFor(() => expect(router.state.location.pathname).toBe('/app/recipes/new'))
+    expect(JSON.parse(screen.getByTestId('manual-recipe-state').textContent ?? 'null')).toEqual({
+      manualRecipe: { userId: 'cook-a', source: 'quick-entry', notes: sourceNotes },
+    })
   })
 
   it('blocks immediate retries after QUOTA_EXCEEDED and keeps the draft', async () => {

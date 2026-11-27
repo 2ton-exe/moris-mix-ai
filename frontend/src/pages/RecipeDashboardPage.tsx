@@ -1,8 +1,9 @@
-import { useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { RecipeCollectionPages } from '../recipes/RecipeCollectionPages'
 import { RecipeError, RecipeSkeleton } from '../recipes/RecipeStates'
+import { focusLoadedJournalContent } from '../journal/focus'
 import { isRecipeAccessError } from '../recipes/errors'
 import { DiscoveryControls } from '../recipes/DiscoveryControls'
 import { useDiscoveryControls } from '../recipes/useDiscoveryControls'
@@ -27,17 +28,19 @@ export default function RecipeDashboardPage() {
   const navigate = useNavigate()
   const { isTurning, requestPageTurn } = useJournalPageTurn()
   const [catalogStarts, setCatalogStarts] = useState([0])
-  const [collectionStarts, setCollectionStarts] = useState([0])
+  const [collectionStarts, setCollectionStarts] = useState([0, 0])
   const measureCatalog = useCallback((starts: number[]) => {
     setCatalogStarts((current) => current.length === starts.length && current.every((start, index) => start === starts[index]) ? current : starts)
   }, [])
   const measureCollection = useCallback((starts: number[]) => {
-    setCollectionStarts((current) => current.length === starts.length && current.every((start, index) => start === starts[index]) ? current : starts)
+    const withBookplate = [0, ...starts]
+    setCollectionStarts((current) => current.length === withBookplate.length && current.every((start, index) => start === withBookplate[index]) ? current : withBookplate)
   }, [])
   const [turnSearch, setTurnSearch] = useState<string | null>(null)
   const restoreIndexFocus = useRef(true)
   const { user } = useAuth()
   const source = useContext(RecipeSourceContext)
+  const canSearch = Boolean(source.discovery?.searchModes.length)
   const facingPage = useContext(JournalFacingPageContext)
   const [params, setParams] = useSearchParams()
   const otherAccount = location.state?.journalAccount !== undefined && location.state.journalAccount !== user?.id
@@ -65,6 +68,8 @@ export default function RecipeDashboardPage() {
   const firstPageRetryButton = useRef<HTMLButtonElement>(null)
   const restoreFirstPageFocus = useRef(false)
   const collectionTitle = useRef<HTMLHeadingElement>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
+  const focusSearchAfterIndex = useRef(false)
   const restoredLocation = useRef<string | null>(null)
   useEffect(() => {
     if (query.isFetchingNextPage || !restorePaginationFocus.current) return
@@ -92,17 +97,18 @@ export default function RecipeDashboardPage() {
   const perPage = phone ? 1 : 2
   const indexView = params.get('view') === 'index' || (params.get('view') !== 'collection' && (Boolean(controls.draft.search) || controls.criteria.sort !== 'newest' || controls.criteria.searchMode !== 'title' || Object.keys(controls.criteria.filters).length > 0))
   const collectionCriteriaKey = JSON.stringify(controls.criteria)
-  useEffect(() => { setCollectionStarts([0]) }, [collectionCriteriaKey, indexView])
+  useEffect(() => { setCollectionStarts([0, 0]) }, [collectionCriteriaKey, indexView])
   const pagedIndex = indexView && typeof ResizeObserver !== 'undefined'
   const pagedCollection = !indexView && !single && typeof ResizeObserver !== 'undefined'
   const displayParams = turnSearch === null ? params : new URLSearchParams(turnSearch)
   const anchored = new URLSearchParams(displayParams)
   const entry = Number(displayParams.get('entry'))
   const hasAnchor = !(turnSearch !== null && !indexView && displayParams.has('leaf')) && displayParams.has('entry') && Number.isSafeInteger(entry) && entry >= 0
+  const collectionSpread = !indexView && !single
   if (hasAnchor) anchored.set('leaf', String(pagedCollection
-    ? Math.max(1, collectionStarts.filter((start) => start <= entry).length)
+    ? Math.max(1, collectionStarts.filter((start) => start <= entry).length - 1)
     : Math.floor(entry / perPage) + 1))
-  const leaf = journalPage(anchored, pagedCollection ? collectionStarts.length : recipes?.length ?? 0, {
+  const leaf = journalPage(anchored, pagedCollection ? collectionStarts.length - 1 : recipes?.length ?? 0, {
     hasMore: query.hasNextPage || query.isPending, perPage: pagedCollection ? 1 : perPage,
   })
   const spread = Math.floor(leaf / 2)
@@ -112,12 +118,22 @@ export default function RecipeDashboardPage() {
   const catalogStart = catalogStarts[catalogPage] ?? 0
   const nextCatalogStart = catalogStarts[catalogPage + 1]
   const previousCatalogStart = catalogStarts[catalogPage - 1]
-  const collectionNeeded = collectionStarts[rightPage] ?? (recipes?.length ?? 0) + (query.hasNextPage || query.isPending ? 1 : 0)
-  const needed = hasAnchor ? Math.max(entry + 1, pagedCollection ? collectionNeeded : 0)
-    : pagedCollection ? collectionNeeded : rightPage * perPage
+  const collectionNeeded = pagedCollection
+    ? collectionStarts[rightPage + 1] ?? (recipes?.length ?? 0) + (query.hasNextPage || query.isPending ? 1 : 0)
+    : (recipes?.length ?? 0) + (query.hasNextPage || query.isPending ? 1 : 0)
+  const spreadNeeded = rightPage * perPage
+  const needed = hasAnchor ? Math.max(entry + 1, pagedCollection ? collectionNeeded : collectionSpread ? spreadNeeded : 0)
+    : pagedCollection ? collectionNeeded : spreadNeeded
   const returnFocusId = typeof location.state?.focusRecipe === 'string' ? location.state.focusRecipe
     : hasAnchor ? recipes?.[entry]?.id : undefined
   const explicitView = params.get('view')
+  useEffect(() => {
+    if (!focusSearchAfterIndex.current || !indexView) return
+    focusSearchAfterIndex.current = false
+    const target = searchInput.current
+    if (target && !target.disabled) target.focus()
+    else collectionTitle.current?.focus()
+  }, [explicitView, facingPage, indexView])
   const restoreKey = `${location.key}:${indexView}:${single}:${perPage}:${pagedCollection ? collectionStarts.join(',') : ''}:${returnFocusId ?? ''}`
   useEffect(() => {
     if (returnFocusId) {
@@ -126,7 +142,8 @@ export default function RecipeDashboardPage() {
       return
     }
     if ((restoreIndexFocus.current || moriFocusKey) && collectionTitle.current) {
-      collectionTitle.current.focus()
+      if (moriFocusKey) collectionTitle.current.focus()
+      else focusLoadedJournalContent(collectionTitle.current)
       restoreIndexFocus.current = false
     }
   }, [facingPage, explicitView, returnFocusId, moriFocusKey])
@@ -134,7 +151,7 @@ export default function RecipeDashboardPage() {
     const next = new URLSearchParams(params)
     if (pagedIndex || pagedCollection) next.delete('leaf')
     else next.set('leaf', String(page))
-    next.set('entry', String(pagedIndex ? page : pagedCollection ? collectionStarts[page - 1] ?? recipes?.length ?? 0 : (page - 1) * perPage))
+    next.set('entry', String(pagedIndex ? page : pagedCollection ? collectionStarts[page] ?? recipes?.length ?? 0 : (page - 1) * perPage))
     return `?${next}`
   }
   const latestPageSearch = useRef(pageSearch)
@@ -158,6 +175,22 @@ export default function RecipeDashboardPage() {
     next.delete('leaf')
     return `?${next}`
   }
+  const indexLink = viewLink('index')
+  const prepareViewChange = (view: 'collection' | 'index') => {
+    focusSearchAfterIndex.current = view === 'index'
+    restoreIndexFocus.current = view === 'collection'
+  }
+  const searchShortcutAvailable = canSearch && source.mode !== 'unavailable' && !isRecipeAccessError(query.error) &&
+    !indexView && !isTurning && !single
+  const openSearchWithShortcut = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const target = event.target
+    if (!searchShortcutAvailable || event.key !== '/' || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey ||
+      document.querySelector('dialog[open]') ||
+      (target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea, select')))) return
+    event.preventDefault()
+    prepareViewChange('index')
+    void navigate(indexLink, { state: { journalAccount: user?.id }, preventScrollReset: true })
+  }
   // A spread is a window over server results, never an assertion of their total.
   // Continue the opaque cursor to fill a spread or restore a saved index anchor,
   // including when the inactive account-scoped query has expired or on reload.
@@ -165,7 +198,7 @@ export default function RecipeDashboardPage() {
     if ((!indexView || hasAnchor) && recipes && recipes.length < needed && query.hasNextPage && !query.isFetching && !query.isFetchNextPageError && !controls.waiting) void query.loadMore()
   }, [indexView, hasAnchor, recipes, needed, query, controls.waiting])
   const nextPage = pagedIndex ? nextCatalogStart
-    : pagedCollection ? collectionStarts[rightPage] !== undefined || query.hasNextPage ? rightPage + 1 : undefined
+    : pagedCollection ? collectionStarts[rightPage + 1] !== undefined || query.hasNextPage ? rightPage + 1 : undefined
     : (recipes?.length ?? 0) > needed || query.hasNextPage ? single ? leaf + 1 : rightPage + 1 : undefined
   const previousPage = pagedIndex ? previousCatalogStart
     : pagedCollection ? spread > 0 ? pages[0] - 1 : undefined
@@ -179,7 +212,13 @@ export default function RecipeDashboardPage() {
     if (!isTurning && params.has('leaf') && !returnFocusId) document.getElementById('collection-heading')?.focus()
   }, [isTurning, leaf, params, returnFocusId])
   const hasSearch = Boolean(controls.criteria.search) || Object.keys(controls.criteria.filters).length > 0
+  const searchResultsKnownEmpty = hasSearch && !controls.waiting && !query.isPending && !query.isFetching && !query.error && recipes?.length === 0
+  const canBroadenSearch = Boolean(controls.criteria.search) && controls.criteria.searchMode !== 'both' && source.discovery?.searchModes.includes('both')
   const guidanceAvailable = source.mode !== 'unavailable' && !isRecipeAccessError(query.error)
+  const resetIndexSearch = () => {
+    restoreFirstPageFocus.current = true
+    controls.reset()
+  }
   useMoriGuidance(!guidanceAvailable || recipes?.length !== 0 ? null : {
     message: hasSearch
       ? 'No recipe cards match this search yet. Try another title or ingredient, or clear the search to see your full collection.'
@@ -192,15 +231,23 @@ export default function RecipeDashboardPage() {
   const empty = controls.criteria.search || Object.keys(controls.criteria.filters).length > 0 ? (
           <section className="journal-empty" aria-labelledby="no-results-heading">
             <h2 id="no-results-heading" tabIndex={-1}>No recipes match your search.</h2>
-            <p>Try another search or reset your filters.</p>
-            <button className="button button-secondary" type="button" onClick={controls.reset}>Show all recipes</button>
+            <p>{canBroadenSearch
+              ? `You searched ${controls.criteria.searchMode === 'title' ? 'recipe titles' : 'ingredient names'}. Try both with the same search.`
+              : 'Try a different search, or reset your search options to see your full collection.'}</p>
+            {searchResultsKnownEmpty && <div className="actions">
+              {canBroadenSearch && <button className="button button-primary" type="button" onClick={() => {
+                restoreFirstPageFocus.current = true
+                controls.change({ ...controls.draft, searchMode: 'both' })
+              }}>Search titles and ingredients</button>}
+              <button className="button button-secondary" type="button" onClick={resetIndexSearch}>Show all recipes</button>
+            </div>}
           </section>
         ) : (
           <section className="journal-empty mm-recipe-empty" aria-labelledby="empty-heading">
             <PaperCard surface="fresh" className="mm-recipe-empty__card">
               <Tape variant="sage" className="mm-recipe-empty__tape" />
               <h2 id="empty-heading" tabIndex={-1}>A fresh page for your next favorite.</h2>
-              <p>Your journal is ready for its first scrap. Start with a dish you love and write down what makes it yours.</p>
+              <p>Pick a dish you love and get it on paper.</p>
               <Link className="button button-primary" to="/app/recipes/new">Add your first recipe</Link>
               <Link className="button button-secondary" to="/app/quick-entry" state={{ journalReturn: location.pathname + location.search }}>Organize cooking notes with Mori</Link>
             </PaperCard>
@@ -227,26 +274,34 @@ export default function RecipeDashboardPage() {
     <RecipeCollectionPages recipes={recipes} pages={pages} perPage={perPage} index={indexView} titleRef={collectionTitle} sort={controls.criteria.sort}
       catalog={pagedIndex ? { start: catalogStart, end: nextCatalogStart ?? recipes?.length ?? 0, indicator: `Page ${catalogPage + 1}`, measure: measureCatalog } : undefined}
       collection={pagedCollection ? { starts: collectionStarts, measure: measureCollection } : undefined}
+      onSearchShortcut={searchShortcutAvailable ? openSearchWithShortcut : undefined}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
-        <Link className="button button-secondary mm-button--small" to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }} onClick={() => { if (!indexView) restoreIndexFocus.current = true }}>{indexView ? 'Browse journal' : 'Search & index'}</Link>
-        {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
+        <Link title={searchShortcutAvailable ? 'Focus the recipe list and press / to search' : undefined} className={`button ${indexView || !single && recipes?.length === 0 ? 'button-secondary' : 'button-primary'} mm-button--small`} to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }}
+          onClick={(event) => {
+          const unmodifiedPrimaryClick = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
+          if (unmodifiedPrimaryClick) prepareViewChange(indexView ? 'collection' : 'index')
+        }}>{indexView ? 'Browse saved recipes' : 'Search saved recipes'}{searchShortcutAvailable && <kbd className="mm-search-shortcut" aria-hidden="true">/</kbd>}</Link>
+        {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--ghost mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
       </div>}
-      controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={controls.reset} />}
+      controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={resetIndexSearch} searchInputRef={searchInput} hideReset={searchResultsKnownEmpty} />}
       status={<>
       {recipeDeleted && <p className="recipe-operation-feedback" role="status">Recipe deleted.</p>}
-      {controls.waiting ? <p role="status">Waiting to search…</p> : query.isPending && <RecipeSkeleton index={indexView} />}
+      {controls.waiting ? <RecipeSkeleton index={indexView} message="Waiting to search…" /> : query.isPending && <RecipeSkeleton index={indexView} />}
       {query.isPaused && <p role="status">You appear to be offline. Your recipes will load when you reconnect.</p>}
-      {!controls.waiting && query.error && (!query.isFetchNextPageError || isRecipeAccessError(query.error)) && <RecipeError error={query.error} retryButtonRef={firstPageRetryButton} onRetry={() => {
-        restoreFirstPageFocus.current = true
-        void query.refetch()
-      }} />}
-      {recipes && query.isFetching && !query.isFetchingNextPage && <p className="recipe-update" role="status">Updating your collection…</p>}
+      {!controls.waiting && query.error && (!query.isFetchNextPageError || isRecipeAccessError(query.error)) && <>
+        <RecipeError error={query.error} retryButtonRef={firstPageRetryButton} onRetry={() => {
+          restoreFirstPageFocus.current = true
+          void query.refetch()
+        }} />
+        {source.mode === 'unavailable' && <Link className="button button-secondary mm-button--small" to="/demo-recipe">Explore the sample recipe</Link>}
+      </>}
+      {recipes && query.isFetching && !query.isFetchingNextPage && <p className="recipe-update visually-hidden" role="status">Updating your collection…</p>}
       {recipes && query.isError && !query.isFetchNextPageError && <p className="recipe-update" role="status">Showing your last loaded collection. Refresh to try again.</p>}
       </>}
       endOfResults={source.discovery && recipes && recipes.length > 0 && !query.hasNextPage && !query.isError && (nextPage === undefined || (indexView && !pagedIndex))
         ? <p ref={endOfResultsRef} className="discovery-end" role="status" tabIndex={-1}>End of results.</p> : null}
-      empty={recipes ? empty : null} pagination={recipes ? pagination : null}
+      empty={recipes && !(query.isError && recipes.length === 0) ? empty : null} pagination={recipes ? pagination : null}
       previous={<>
         {previousPage !== undefined ? <Link className="button mm-button--page-turn" to={pageLink(previousPage)}
           aria-disabled={isTurning || undefined} tabIndex={isTurning ? -1 : undefined}

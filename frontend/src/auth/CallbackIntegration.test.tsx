@@ -86,7 +86,7 @@ it('does not report verification success for rejected callback credentials when 
   const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ code: 'bad_jwt', message: 'private callback failure' }, { status: 401 }))
   vi.stubGlobal('fetch', fetchImpl)
   mount()
-  await screen.findByRole('heading', { name: 'Check your verification link' })
+  await screen.findByRole('heading', { name: 'Email link unavailable' })
   expect(screen.queryByRole('heading', { name: 'Email verified' })).toBeNull()
   expect(window.location.hash).toBe('')
   expect(window.location.search).toBe('?lang=en')
@@ -103,7 +103,7 @@ it('does not accept a PKCE callback code without its browser verifier when a ses
   vi.stubGlobal('fetch', fetchImpl)
   mount()
 
-  await screen.findByRole('heading', { name: 'Check your verification link' })
+  await screen.findByRole('heading', { name: 'Email link unavailable' })
 
   expect(fetchImpl).not.toHaveBeenCalled()
   expect((await getAuthClient().getSession()).data.session?.access_token).toBe('existing-test-access')
@@ -125,7 +125,7 @@ it('preserves an existing session when the browser verifier cannot redeem a call
   window.history.replaceState(null, '', '/auth/callback?lang=en&code=mismatched-test-code')
   mount()
 
-  await screen.findByRole('heading', { name: 'Check your verification link' })
+  await screen.findByRole('heading', { name: 'Email link unavailable' })
 
   expect(fetchImpl).toHaveBeenCalledWith(`${authUrl}/auth/v1/token?grant_type=pkce`, expect.objectContaining({ method: 'POST' }))
   expect((await getAuthClient().getSession()).data.session?.access_token).toBe('existing-test-access')
@@ -162,7 +162,7 @@ it.each([
   const fetchImpl = vi.fn<typeof fetch>()
   vi.stubGlobal('fetch', fetchImpl)
   mount()
-  await screen.findByRole('heading', { name: 'Check your verification link' })
+  await screen.findByRole('heading', { name: 'Email link unavailable' })
   expect(screen.queryByRole('heading', { name: 'Email verified' })).toBeNull()
   expect(window.location.hash).toBe('')
   expect(window.location.search).not.toMatch(/code=|token_hash=/)
@@ -206,7 +206,7 @@ it('does not reuse an old successful callback result when returning to the callb
   view.unmount()
   window.history.replaceState(null, '', '/auth/callback?code=unprocessed-code')
   mount()
-  await screen.findByRole('heading', { name: 'Check your verification link' })
+  await screen.findByRole('heading', { name: 'Email link unavailable' })
   expect(screen.queryByRole('heading', { name: 'Email verified' })).toBeNull()
   expect(window.location.search).toBe('')
 })
@@ -256,7 +256,7 @@ it.each([
   expect(exchange).toHaveBeenCalledOnce()
   expect(fetchImpl).toHaveBeenCalledWith(`${authUrl}/auth/v1/token?grant_type=pkce`, expect.anything())
   await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
-  expect(screen.getByRole('heading', { name: 'Check your verification link' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Email link unavailable' })).toBeTruthy()
   expect(window.location.search).toBe('?lang=en')
   const callbackRequest = fetchImpl.mock.calls.find(([input]) => String(input) === `${authUrl}/auth/v1/token?grant_type=pkce`)
   expect(callbackRequest?.[1]?.signal?.aborted).toBe(true)

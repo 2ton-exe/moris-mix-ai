@@ -9,7 +9,7 @@ import { chromium, expect } from '@playwright/test'
 import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
 import { assertReferencePrerequisites } from './reference-prerequisites.mjs'
-import { holdSpatialPaperGrip } from './journal-geometry.mjs'
+import { holdPaperTurn } from './journal-geometry.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const referenceRoot = path.resolve(root, '../../figma-make-reference')
@@ -199,7 +199,7 @@ try {
   appPage.setDefaultTimeout(12_000)
   referencePage.setDefaultTimeout(12_000)
   await Promise.all([appPage.goto(`${origin}app/recipes`), referencePage.goto(`${referenceOrigin}journal/scraps`)])
-  await expect(appPage.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+  await expect(appPage.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i, level: 1 })).toBeVisible()
   await expect(appPage.locator('.mori-pet-root .mm-mori')).toHaveCount(1)
   await expect(appPage.locator('.mm-journal-book .mm-mori')).toHaveCount(0)
   await expect(referencePage.locator('.book')).toHaveAttribute('data-cover', 'open')
@@ -223,10 +223,9 @@ try {
   const forwardLayer = appPage.locator('[data-journal-page-turn]')
   await expect(forwardLayer).toHaveAttribute('data-phase', 'animating')
   await expect(referencePage.locator('.turn-layer .leaf')).toBeVisible()
-  const [forwardMori, forwardReferenceTimes] = await Promise.all([holdSpatialPaperGrip(forwardLayer), holdTurnAtMidpoint(referencePage, true, 410)])
+  const [forwardMori, forwardReferenceTimes] = await Promise.all([holdPaperTurn(forwardLayer), holdTurnAtMidpoint(referencePage, true, 410)])
   assert.equal(forwardMori?.direction, 'forward')
-  assert.ok(forwardMori?.separation <= 2, 'Rendered mitt stays attached to paper')
-  await expect(forwardLayer.locator('[data-mori-paper-actor] > :is(svg, img):visible')).toBeVisible()
+  await expect(forwardLayer.locator('[data-mori-paper-actor]')).toHaveCount(0)
   await expect(appPage.locator('.mori-pet-root .mm-mori')).toHaveCount(1)
   assert.ok(forwardReferenceTimes.length > 0, 'The reference spread exposes its turn animations')
   const forwardMidCurrent = await turnDiagnostics(appPage)
@@ -255,9 +254,8 @@ try {
   const backwardLayer = appPage.locator('[data-journal-page-turn]')
   await expect(backwardLayer).toHaveAttribute('data-phase', 'animating')
   await expect(referencePage.locator('.turn-layer .leaf')).toBeVisible()
-  const [backwardMori, backwardReferenceTimes] = await Promise.all([holdSpatialPaperGrip(backwardLayer), holdTurnAtMidpoint(referencePage, true, 410)])
+  const [backwardMori, backwardReferenceTimes] = await Promise.all([holdPaperTurn(backwardLayer), holdTurnAtMidpoint(referencePage, true, 410)])
   assert.equal(backwardMori?.direction, 'backward')
-  assert.ok(backwardMori?.separation <= 2, 'Rendered mitt stays attached to paper')
   assert.ok(backwardReferenceTimes.length > 0, 'The reference spread exposes its turn animations')
   const backwardMidCurrent = await turnDiagnostics(appPage)
   const backwardMidReference = await turnDiagnostics(referencePage, true)
@@ -278,7 +276,7 @@ try {
 
   // Walk the real collection pagination to both bounds, then return to the first spread.
   await appPage.goto(`${origin}app/recipes`)
-  await expect(appPage.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+  await expect(appPage.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i, level: 1 })).toBeVisible()
   const previousAtStart = appPage.getByRole('link', { name: /Previous page/ })
   await expect(previousAtStart).toHaveCount(0)
   const nextPage = appPage.getByRole('link', { name: /Next page/ })
@@ -356,8 +354,8 @@ try {
     const interactiveCopies = copies.flatMap((node) => [...node.querySelectorAll('a,button,input,textarea,select,[tabindex]')])
     const copiesAreInert = interactiveCopies.every((element) => {
       const tag = element.tagName
-      const nativeControl = ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT'].includes(tag)
-      return element.tabIndex === -1 && (!nativeControl || element.disabled) && (tag !== 'A' || !element.hasAttribute('href'))
+      const nativeControl = ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)
+      return element.tabIndex === -1 && (!nativeControl || element.disabled) && (tag !== 'BUTTON' || element.type === 'button') && (tag !== 'A' || !element.hasAttribute('href'))
     })
     const duplicateIds = [...globalThis.document.querySelectorAll('[id]')].map((node) => node.id).filter((id, index, all) => all.indexOf(id) !== index)
     return { copies: copies.length, interactiveCopies: interactiveCopies.length, copiesAreInert, duplicateIds, focusedInSnapshot: !!globalThis.document.activeElement?.closest('.mm-page-turn-layer') }
@@ -387,7 +385,7 @@ try {
   await expect(appPage).toHaveURL(/\/app\/recipes\/new$/)
   await expect(appPage.getByLabel('Recipe title')).toHaveValue('A persistent animated draft')
 
-  await appPage.getByRole('button', { name: 'Next Pages' }).click()
+  await appPage.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
   await expect(appPage.locator('[data-journal-page-turn]')).toBeVisible()
   const formLayer = appPage.locator('[data-journal-page-turn]')
   assert.ok(await appPage.locator('form').count() > 1, 'The turn snapshot and one live form are present together')
@@ -400,7 +398,7 @@ try {
   await appPage.getByRole('button', { name: 'Previous Pages' }).click()
   await finishTurn(appPage)
   await expect(appPage.getByLabel('Recipe title')).toHaveValue('A persistent animated draft')
-  await appPage.getByRole('button', { name: 'Next Pages' }).click()
+  await appPage.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
   await finishTurn(appPage)
   await expect(appPage.getByRole('button', { name: 'Save recipe' })).toBeEnabled()
   await appPage.getByRole('button', { name: 'Save recipe' }).click()

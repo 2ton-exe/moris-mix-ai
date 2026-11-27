@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { Mori, type MoriMood } from '../journal/Mori'
 import { MORI_ART_SCALE, MORI_DESKTOP_SIZE, moriRestFoot } from '../journal/moriPaperMotion'
 import { MORI_FOOT, preloadMoriSprites } from '../journal/moriSpriteAtlas'
-import { JOURNAL_SINGLE_LAYOUT_QUERY, mittAnchor, registerTurnCompanion, smooth } from '../journal/pageTurnMotion'
+import { JOURNAL_SINGLE_LAYOUT_QUERY, mittAnchor } from '../journal/pageTurnMotion'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { MoriChatPanel } from './MoriChatPanel'
 import { useMoriCompanionState } from './MoriCompanionContext'
@@ -16,6 +16,11 @@ import './mori-companion.css'
 const navigationTapSize = 48
 const navigationTapArm = -58
 const navigationTapStyle: CSSProperties & { '--mori-navigation-arm': string } = { '--mori-navigation-arm': `${navigationTapArm}deg` }
+const defaultChatSize = { width: 520, height: 560 }
+const smallChatSize = { width: 380, height: 420 }
+const desktopChatSize = { width: 420, height: 560 }
+const smallDesktopChatSize = { width: 360, height: 480 }
+type ChatSize = typeof defaultChatSize & { leftOffset: number; bottomOffset: number; placement: 'left' | 'right' }
 const storageKey = 'moris-mix:mori-companion'
 const preferencesSchema = z.object({
   hidden: z.boolean().default(false),
@@ -50,15 +55,16 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const location = useLocation()
   const [preferences, setPreferences] = useState(readPreferences)
   const [open, setOpen] = useState(false)
+  const [chatSize, setChatSize] = useState<ChatSize | null>(null)
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
-  const [pageTurn, setPageTurn] = useState(false)
   const [traveling, setTraveling] = useState(false)
   const [dock, setDock] = useState<Position | null>(null)
   const [viewport, setViewport] = useState(readViewport)
   const [bubbleHeight, setBubbleHeight] = useState(260)
   const mobile = useJournalMedia('(max-width: 600px)')
   const singleLayout = useJournalMedia(JOURNAL_SINGLE_LAYOUT_QUERY)
+  const desktopPointer = useJournalMedia('(hover: hover) and (pointer: fine)')
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
   const character = useRef<HTMLDivElement>(null)
   const navigationTap = useRef<HTMLDivElement>(null)
@@ -68,6 +74,8 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const heading = useRef<HTMLHeadingElement>(null)
   const bubble = useRef<HTMLDivElement>(null)
   const drag = useRef<{ pointerId: number; x: number; y: number; startX: number; startY: number; moved: boolean } | null>(null)
+  const resizeDrag = useRef<{ pointerId: number; x: number; y: number; size: typeof defaultChatSize } | null>(null)
+  const resizedByDrag = useRef(false)
   const suppressClick = useRef(false)
   const focusAfterVisibilityChange = useRef(false)
   const headingId = useId()
@@ -89,6 +97,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const page = companionPage(location.pathname)
   const pageGuidance = page.area === 'recipes' || page.area === 'chef' ? guidance : null
   const companionMessage = activity.kind === 'idle' ? pageGuidance?.message ?? page.message : activity.message
+  const resizableChat = Boolean(userId && !singleLayout)
+  const dialogue = resizableChat && desktopPointer
+  const naturalDialogue = dialogue
 
   useEffect(() => () => stopNavigationTravel.current?.(), [])
   useEffect(() => { if (!singleLayout && !reducedMotion) preloadMoriSprites() }, [singleLayout, reducedMotion])
@@ -111,17 +122,18 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       const next = rect?.width ? moriRestFoot(rect) : null
       let dockPosition: Position | null = null
       if (next && rect && paper) {
-        const x = next.x - size / 2
-        const artHeight = size * 1.2
-        const controls = Array.from(paper.querySelectorAll('button, a[href], input, textarea, select, [contenteditable]'), (control) => control.getBoundingClientRect())
-          .filter((control) => control.width && control.height && control.left < x + size && control.right > x)
-        let y = next.y - MORI_FOOT.y * MORI_ART_SCALE
+        const candidate = clamp({ x: next.x - width / 2, y: next.y - MORI_FOOT.y * MORI_ART_SCALE })
+        const x = candidate.x + (width - size) / 2
+        const artHeight = size * 1.2 + 24
+        const controls = Array.from(paper.querySelectorAll('button, a[href], input, textarea, select, [contenteditable], h1, h2, h3, h4, h5, h6, [role="heading"], [role="alert"], [role="status"], .field-hint, .mm-recipe-artwork, .mm-collection-entry, .recipe-update, .request-state'), (control) => control.getBoundingClientRect())
+          .filter((control) => control.width > 1 && control.height > 1 && control.left < x + size && control.right > x)
+        let y = candidate.y
         const minimum = Math.max(rect.top + 8, 8)
         controls.sort((a, b) => b.bottom - a.bottom)
         for (const control of controls) {
           if (control.top < y + artHeight && control.bottom > y) y = control.top - artHeight - 4
         }
-        if (y >= minimum) dockPosition = { x: next.x - width / 2, y }
+        if (y >= minimum) dockPosition = { x: candidate.x, y }
       }
       setDock((current) => current?.x === dockPosition?.x && current?.y === dockPosition?.y ? current : dockPosition)
     }
@@ -144,9 +156,12 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       window.removeEventListener('scroll', place)
       window.removeEventListener('resize', place)
     }
-  }, [location.pathname, singleLayout, size, width])
+  }, [location.pathname, singleLayout, size, width, clamp])
   const keepOpen = typeof location.state === 'object' && location.state !== null && 'moriKeepOpen' in location.state && location.state.moriKeepOpen === true
-  useEffect(() => { if (keepOpen) setOpen(true); else setOpen(false) }, [location.pathname, keepOpen])
+  useEffect(() => {
+    if (keepOpen) setOpen(true)
+    else setOpen(false)
+  }, [location.pathname, keepOpen])
   useEffect(() => {
     const check = () => {
       setSuspended(Boolean(document.querySelector('dialog[open], [role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')))
@@ -157,80 +172,10 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     return () => observer.disconnect()
   }, [])
   useLayoutEffect(() => {
-    const element = character.current
-    const svg = trigger.current?.querySelector('svg')
-    if (!element || !svg) return
-    const arm = svg.querySelector('[data-mori-grip-arm]')
-    const closed = svg.querySelector<SVGElement>('[data-mori-closed-mitt]')
-    const openMitt = svg.querySelector<SVGElement>('[data-mori-open-mitt]')
-    const neutralArm = arm?.getAttribute('transform')
-    return registerTurnCompanion({
-      startSpatial() {
-        const button = trigger.current
-        const rect = button?.getBoundingClientRect()
-        stopNavigationTravel.current?.()
-        if (!rect || element.closest('[hidden]')) return null
-        if (rect.width === 0) return null
-        element.dataset.moriSpatialTurn = ''
-        setPageTurn(true)
-        setOpen(false)
-        return {
-          screenFoot: { x: rect.left + rect.width / 2, y: rect.top + MORI_FOOT.y * MORI_ART_SCALE },
-          setActorOpacity(opacity) { element.style.opacity = String(1 - opacity) },
-          stop() {
-            delete element.dataset.moriSpatialTurn
-            element.style.removeProperty('opacity')
-            setPageTurn(false)
-          },
-        }
-      },
-      start(direction, single) {
-        stopNavigationTravel.current?.()
-        if (!element.getClientRects().length) return
-        element.dataset.turnDirection = direction
-        svg.style.transform = 'none'
-        const rect = element.getBoundingClientRect()
-        const art = svg.getBoundingClientRect()
-        const scale = art.width / 200
-        const offset = { x: art.left - rect.left, y: art.top - rect.top }
-        const mirror = !single && direction === 'backward'
-        const turnScale = single ? .6 : 1
-        setPageTurn(true)
-        setOpen(false)
-        return (frame, corner) => {
-          const hand = mittAnchor(frame.armAngle)
-          const target = { x: corner.x - (offset.x + (mirror ? 200 - hand.x : hand.x) * scale) * turnScale, y: corner.y - (offset.y + hand.y * scale) * turnScale }
-          const blend = frame.progress < .18 ? smooth(frame.progress / .18) : 1 - smooth((frame.progress - .9) / .1)
-          element.style.transform = `translate(${(target.x - rect.left) * blend}px, ${(target.y - rect.top) * blend}px) scale(${1 + (turnScale - 1) * blend})`
-          svg.style.transform = mirror ? 'scaleX(-1)' : 'none'
-          arm?.setAttribute('transform', `rotate(${frame.armAngle} 128 168)`)
-          if (frame.attached) {
-            const matrix = svg.getScreenCTM()
-            if (matrix) {
-              const rendered = new DOMPoint(hand.x, hand.y).matrixTransform(matrix)
-              element.style.transform = `translate(${(target.x - rect.left) * blend + corner.x - rendered.x}px, ${(target.y - rect.top) * blend + corner.y - rendered.y}px) scale(${1 + (turnScale - 1) * blend})`
-            }
-          }
-          if (closed) closed.style.opacity = String(frame.grip)
-          if (openMitt) openMitt.style.opacity = String(1 - frame.grip)
-          element.dataset.turnStage = frame.stage
-        }
-      },
-      stop() {
-        if (!element.dataset.turnDirection) return
-        element.style.removeProperty('transform')
-        svg.style.removeProperty('transform')
-        if (neutralArm == null) arm?.removeAttribute('transform')
-        else arm?.setAttribute('transform', neutralArm)
-        closed?.style.removeProperty('opacity')
-        openMitt?.style.removeProperty('opacity')
-        delete element.dataset.turnDirection
-        delete element.dataset.turnStage
-        setPageTurn(false)
-      },
-    })
-  }, [size])
-  useLayoutEffect(() => { if (open) heading.current?.focus({ preventScroll: true }) }, [open])
+    if (!open) return
+    const composer = userId ? bubble.current?.querySelector('textarea') : null
+    ;(composer ?? heading.current)?.focus({ preventScroll: true })
+  }, [open, userId])
   useLayoutEffect(() => {
     if (!focusAfterVisibilityChange.current) return
     focusAfterVisibilityChange.current = false
@@ -245,37 +190,73 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const belowSpace = bottom - (actual.y + height) - gap
   const aboveSpace = actual.y - top - gap
   const placement = sideSpace >= Math.min(340, viewport.width - 16) ? side : belowSpace >= aboveSpace ? 'bottom' : 'top'
-  const verticalSpace = placement === 'bottom' ? belowSpace : placement === 'top' ? aboveSpace : bottom - top
-  const preferredWidth = userId && viewport.width >= 1100 ? 520 : 380
-  const preferredHeight = userId && viewport.width >= 1100 ? 560 : 460
-  const panelWidth = placement === 'left'
+  const mouthY = actual.y + size * 0.67
+  const resizeFromSide = resizableChat && (placement === 'left' || placement === 'right')
+  const resizeBottom = Math.min(bottom, Math.max(top + defaultChatSize.height, mouthY + defaultChatSize.height / 2))
+  const verticalSpace = placement === 'bottom' ? belowSpace : placement === 'top' ? aboveSpace : (resizeFromSide && !naturalDialogue ? resizeBottom : bottom) - top
+  const standardChat = desktopPointer ? desktopChatSize : defaultChatSize
+  const smallChat = desktopPointer ? smallDesktopChatSize : smallChatSize
+  const preferredChat = chatSize ?? standardChat
+  const preferredWidth = resizableChat ? preferredChat.width : userId && viewport.width >= 1100 ? defaultChatSize.width : 380
+  const preferredHeight = resizableChat ? preferredChat.height : userId && viewport.width >= 1100 ? defaultChatSize.height : 460
+  const anchoredLeft = resizeFromSide && chatSize?.placement === placement
+    ? Math.max(left, Math.min(actual.x + chatSize.leftOffset, right - smallChat.width)) : null
+  const panelWidth = anchoredLeft !== null ? Math.min(preferredWidth, right - anchoredLeft) : placement === 'left'
     ? Math.min(preferredWidth, viewport.width - 16, leftSpace)
     : placement === 'right'
       ? Math.min(preferredWidth, viewport.width - 16, rightSpace)
       : Math.min(preferredWidth, viewport.width - 16)
   const maxPanelHeight = Math.max(0, Math.min(preferredHeight, viewport.height - 16, verticalSpace))
-  const measuredPanelHeight = userId ? maxPanelHeight : Math.min(bubbleHeight, maxPanelHeight)
-  const mouthY = actual.y + size * 0.67
-  const panelLeft = placement === 'left'
+  const manuallySized = resizeFromSide && chatSize?.placement === placement
+  const anchoredBottom = manuallySized ? Math.min(bottom, actual.y + chatSize.bottomOffset) : null
+  const naturalSide = naturalDialogue && !manuallySized && resizeFromSide
+  const naturalShift = `clamp(${top - mouthY}px, -50%, calc(${bottom - mouthY}px - 100%))`
+  const naturalTail = `clamp(14px, clamp(calc(100% - ${bottom - mouthY}px), 50%, ${mouthY - top}px), calc(100% - 14px))`
+  const measuredPanelHeight = userId && (!naturalDialogue || manuallySized) ? maxPanelHeight : Math.min(bubbleHeight, maxPanelHeight)
+  const panelLeft = anchoredLeft ?? (placement === 'left'
     ? actual.x - gap - panelWidth
     : placement === 'right'
       ? actual.x + width + gap
-      : Math.max(left, Math.min(actual.x + width / 2 - panelWidth / 2, right - panelWidth))
+      : Math.max(left, Math.min(actual.x + width / 2 - panelWidth / 2, right - panelWidth)))
   const panelTop = placement === 'left' || placement === 'right'
-    ? Math.max(top, Math.min(mouthY - measuredPanelHeight / 2, bottom - measuredPanelHeight))
+    ? anchoredBottom !== null ? Math.max(top, anchoredBottom - measuredPanelHeight) : resizeFromSide && !naturalDialogue ? resizeBottom - measuredPanelHeight : Math.max(top, Math.min(mouthY - measuredPanelHeight / 2, bottom - measuredPanelHeight))
     : placement === 'top'
       ? Math.max(top, Math.min(actual.y - gap - measuredPanelHeight, bottom - measuredPanelHeight))
       : Math.max(top, Math.min(actual.y + height + gap, bottom - measuredPanelHeight))
-  const availablePanelHeight = Math.max(0, Math.min(maxPanelHeight, bottom - panelTop))
-  const visiblePanelHeight = userId ? availablePanelHeight : Math.min(bubbleHeight, availablePanelHeight)
+  const availablePanelHeight = naturalDialogue ? maxPanelHeight : Math.max(0, Math.min(maxPanelHeight, bottom - panelTop))
+  const visiblePanelHeight = userId && (!naturalDialogue || manuallySized) ? availablePanelHeight : Math.min(bubbleHeight, availablePanelHeight)
   const tailOffset = placement === 'left' || placement === 'right'
     ? Math.max(14, Math.min(visiblePanelHeight - 14, mouthY - panelTop))
     : Math.max(20, Math.min(panelWidth - 20, actual.x + width / 2 - panelLeft))
+  const tailAttached = placement === 'left' ? Math.abs(panelLeft + panelWidth + gap - actual.x) < 1
+    : placement === 'right' ? Math.abs(panelLeft - gap - actual.x - width) < 1 : true
+  function resizeChat(width: number, height: number) {
+    if (placement !== 'left' && placement !== 'right') return
+    const bounds = bubble.current?.getBoundingClientRect()
+    const currentLeft = bounds?.left ?? panelLeft
+    const currentBottom = bounds?.bottom ?? panelTop + visiblePanelHeight
+    setChatSize({
+      width: Math.min(right - currentLeft, Math.max(smallChat.width, width)),
+      height: Math.min(verticalSpace, currentBottom - top, Math.max(smallChat.height, height)),
+      leftOffset: currentLeft - actual.x,
+      bottomOffset: currentBottom - actual.y,
+      placement,
+    })
+  }
   useLayoutEffect(() => {
-    if (!open) return
-    const height = bubble.current?.offsetHeight ?? 0
-    if (height > 0 && Math.abs(height - bubbleHeight) > 1) setBubbleHeight(height)
-  }, [open, pageTurn, panelWidth, availablePanelHeight, companionMessage, page.label, pageGuidance?.action?.label, bubbleHeight])
+    if (!open || (userId && !naturalDialogue)) return
+    const element = bubble.current
+    if (!element) return
+    const measure = () => {
+      const height = element.offsetHeight
+      if (height > 0) setBubbleHeight(current => Math.abs(height - current) > 1 ? height : current)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [open, naturalDialogue, userId])
 
   async function playNavigationTap(findAnchor: () => HTMLElement | null, signal: AbortSignal) {
     if (document.hidden) return
@@ -327,9 +308,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   async function playNavigationTravel(findTab: () => HTMLElement | null, signal: AbortSignal) {
     const element = character.current
     const button = trigger.current
-    if (signal.aborted || element?.dataset.turnDirection || element?.hasAttribute('data-mori-spatial-turn')) return false
+    if (signal.aborted) return false
     if (!element || !button) return true
-    if (stopNavigationTravel.current) return false
+    stopNavigationTravel.current?.()
     setTraveling(true)
     const travel = travelToJournalTab({ character: element, trigger: button, findTab, signal, onSettled() {
       stopNavigationTravel.current = null
@@ -338,6 +319,18 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     stopNavigationTravel.current = travel.cancel
     return travel.arrived
   }
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const walk = (event: MouseEvent) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('.mm-bookmarks--journal a') : null
+      if (link) void playNavigationTravel(() => Array.from(document.querySelectorAll<HTMLAnchorElement>('.mm-bookmarks--journal a'))
+        .find((tab) => tab.pathname === link.pathname) ?? null, controller.signal)
+    }
+    document.addEventListener('click', walk)
+    return () => { controller.abort(); document.removeEventListener('click', walk) }
+  }, [])
 
   function close() { setOpen(false); trigger.current?.focus() }
   function show() {
@@ -350,7 +343,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     if (description) setMoved(description)
   }
   function moveKey(event: KeyboardEvent<HTMLButtonElement>) {
-    if (pageTurn || traveling) return
+    if (traveling) return
     const directions: Record<string, [number, number, string]> = { ArrowLeft: [-16, 0, 'left'], ArrowRight: [16, 0, 'right'], ArrowUp: [0, -16, 'up'], ArrowDown: [0, 16, 'down'] }
     const direction = directions[event.key]
     if (!direction) return
@@ -364,15 +357,15 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     '--mori-navigation-width': `${size}px`,
   } as CSSProperties
   return <>
-  <div className="mori-pet-root">
+  <div className="mori-pet-root" data-dialogue-state={open ? undefined : 'idle'}>
     <button ref={showButton} className="mori-pet-show" type="button" hidden={!preferences.hidden || suspended} inert={suspended} onClick={show}>Show Mori</button>
     <div hidden={preferences.hidden || suspended} inert={preferences.hidden || suspended}>
       <span className="mori-pet-sr" aria-live="polite">{moved}</span>
       <span id={moveHintId} className="mori-pet-sr">Drag Mori to move. When focused, use the arrow keys to reposition.</span>
       <div ref={character} className="mori-pet-character" role="group" aria-label="Mori companion" data-activity={activity.kind} style={characterStyle}>
-        <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open && !pageTurn} aria-disabled={pageTurn || traveling ? 'true' : undefined} tabIndex={pageTurn || traveling ? -1 : undefined}
+        <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open} aria-disabled={traveling ? 'true' : undefined} tabIndex={traveling ? -1 : undefined}
           onClick={(event) => {
-            if (pageTurn || traveling) { event.preventDefault(); return }
+            if (traveling) { event.preventDefault(); return }
             if (suppressClick.current) {
               suppressClick.current = false
               if (event.detail !== 0) { event.preventDefault(); return }
@@ -382,7 +375,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           }}
           onKeyDown={moveKey}
           onPointerDown={(event) => {
-            if (pageTurn || traveling || event.button !== 0 || !event.isPrimary) return
+            if (traveling || event.button !== 0 || !event.isPrimary) return
             drag.current = { pointerId: event.pointerId, x: event.clientX - actual.x, y: event.clientY - actual.y, startX: event.clientX, startY: event.clientY, moved: false }
             event.currentTarget.setPointerCapture(event.pointerId)
           }}
@@ -408,9 +401,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           <Mori size={size} mood={open ? 'talk' : moods[activity.kind]} animated={!reducedMotion} />
         </button>
       </div>
-      <div ref={bubble} hidden={!open || pageTurn} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }}>
-        <span className="mori-pet-bubble-tail" style={placement === 'left' || placement === 'right' ? { top: tailOffset } : { left: tailOffset }} aria-hidden="true" />
-        <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" data-chat={Boolean(userId)} style={{ maxHeight: availablePanelHeight }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
+      <div ref={bubble} hidden={!open} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: naturalSide ? mouthY : anchoredBottom ?? panelTop, translate: naturalSide ? `0 ${naturalShift}` : anchoredBottom !== null ? '0 -100%' : undefined, width: panelWidth }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
+        {tailAttached && <span className="mori-pet-bubble-tail" style={placement === 'left' || placement === 'right' ? { top: naturalSide ? naturalTail : tailOffset } : { left: tailOffset }} aria-hidden="true" />}
+        <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" data-chat={Boolean(userId)} data-dialogue={dialogue || undefined} data-resizable={resizeFromSide || undefined} data-sized={manuallySized || undefined} style={{ maxHeight: availablePanelHeight, height: resizeFromSide && (!naturalDialogue || manuallySized) ? availablePanelHeight : undefined }}>
           <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
           {!userId && <><p className="mori-pet-context">{page.label}</p>
           <p className="mori-pet-message">{companionMessage}</p></>}
@@ -421,6 +414,37 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
             if (!bubble.current?.contains(document.activeElement)) setOpen(false)
           }}>{pageGuidance.action.label}</button>}
         </section>
+        {resizeFromSide && <button className="mori-pet-resize" type="button" aria-label="Resize Mori chat" aria-description="Drag or use the arrow keys to resize. Press Enter to reset." aria-controls={panelId}
+          onClick={(event) => {
+            if (event.detail === 0) setChatSize(null)
+          }}
+          onKeyDown={(event) => {
+            const horizontal = event.key === 'ArrowLeft' ? -24 : event.key === 'ArrowRight' ? 24 : 0
+            const vertical = event.key === 'ArrowUp' ? -24 : event.key === 'ArrowDown' ? 24 : 0
+            if (!horizontal && !vertical) return
+            event.preventDefault()
+            resizeChat(panelWidth + horizontal, (bubble.current?.getBoundingClientRect().height ?? visiblePanelHeight) - vertical)
+          }}
+          onPointerDown={(event) => {
+            if (!event.isPrimary || event.button !== 0) return
+            resizedByDrag.current = false
+            resizeDrag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, size: { width: panelWidth, height: bubble.current?.getBoundingClientRect().height ?? visiblePanelHeight } }
+            event.currentTarget.setPointerCapture(event.pointerId)
+          }}
+          onPointerMove={(event) => {
+            const start = resizeDrag.current
+            if (start?.pointerId !== event.pointerId) return
+            const dx = event.clientX - start.x
+            const dy = event.clientY - start.y
+            if (!resizedByDrag.current && Math.hypot(dx, dy) < 4) return
+            resizedByDrag.current = true
+            resizeChat(start.size.width + dx, start.size.height - dy)
+          }}
+          onLostPointerCapture={(event) => { if (resizeDrag.current?.pointerId === event.pointerId) resizeDrag.current = null }}>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+            <path d="M3 3L15 15M8 3L15 10M13 3L15 5" />
+          </svg>
+        </button>}
       </div>
     </div>
   </div>

@@ -27,6 +27,11 @@ it('packs complete rows, charging a section heading only at a section or leaf bo
 it('isolates a whole oversized entry without dropping it or looping', () => {
   expect(paginateReading([row('a'), row('long', 'method', 2000), row('b')], 100)).toEqual([['a'], ['long'], ['b']])
 })
+it('keeps a two-recipe leaf limit independent of spare paper height', () => {
+  const rows = ['a', 'b', 'c', 'd', 'e'].map(id => row(id))
+  for (const capacity of [160, 1000]) expect(paginateReading(rows, capacity, 2)).toEqual([['a', 'b'], ['c', 'd'], ['e']])
+  expect(paginateReading(rows, 50, 2)).toEqual([['a'], ['b'], ['c'], ['d'], ['e']])
+})
 it.each([0, -1, NaN, Infinity])('retains all entries when dimensions cannot be measured (%s)', (capacity) => {
   expect(paginateReading([row('a'), row('b')], capacity)).toEqual([['a', 'b']])
 })

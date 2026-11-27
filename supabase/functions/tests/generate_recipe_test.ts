@@ -1374,7 +1374,7 @@ Deno.test("Cold start with no saved recipes still generates an unsaved preview w
     totalCandidateCount: 0,
   });
   assertEquals(seenContexts.length, 1);
-  assertEquals(seenContexts[0].recipes, []);
+  assertEquals(seenContexts[0], COLD_START_CONTEXT);
   assertNoDatabaseWrites(requests);
 });
 
@@ -3134,4 +3134,208 @@ Deno.test("Generate quota consumption falls back to environment variables when d
     if (prevKey === undefined) Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
     else Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", prevKey);
   }
+});
+
+Deno.test("Pantry generation still ignores extra fields from a focused revision", async () => {
+  const { fetchImpl, requests } = createFetchMock();
+  const response = await handler(generateRequest(JSON.stringify({
+    pantryItems: ["rice"],
+    sourceRecipeId: PARENT_ID,
+    noteExcerpt: "This field is ignored by pantry generation.",
+  })), {
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: fetchImpl,
+    buildContext: contextReturning(COLD_START_CONTEXT),
+    provider: providerReturning(COLD_START_GENERATED),
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals((await response.json()).revision, undefined);
+  assertNoDatabaseWrites(requests);
+});
+
+Deno.test("Chef revisions use exact selected evidence and sign only an owned source", async () => {
+  const salty = "Too salty with ¼ cup soy sauce. Loved the extra vinegar.";
+  const tang = "Needed more tang.";
+  const source = {
+    id: PARENT_ID,
+    user_id: VERIFIED_USER_ID,
+    title: "Chicken Adobo",
+    star_rating: null,
+    notes: [salty, tang, "Unrelated personal note."].join("\n"),
+    ingredients: [
+      { name: "soy sauce", quantity: 0.25, unit: "cup", inferred: false },
+      { name: "vinegar", quantity: 3, unit: "tbsp", inferred: false },
+    ],
+    instructions: [{ step: 1, text: "Combine the soy sauce and vinegar." }],
+  };
+  const { fetchImpl, requests } = createFetchMock();
+  const observedContexts: unknown[] = [];
+  let rows: unknown[] = [source];
+  let changedIngredient = 0;
+  let explainChange = true;
+  let instructions = source.instructions;
+  const explanations = [
+    "Less soy sauce is intended to reduce the saltiness you noticed.",
+    "An extra tablespoon of vinegar is intended to bring more tang.",
+  ];
+  const fetch: typeof globalThis.fetch = (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    if (url.pathname === "/rest/v1/recipes") {
+      assertEquals(url.searchParams.get("id"), "eq." + PARENT_ID);
+      assertEquals(url.searchParams.get("user_id"), "eq." + VERIFIED_USER_ID);
+      assertEquals(
+        new Headers(init?.headers).get("authorization"),
+        "Bearer " + VALID_TEST_JWT,
+      );
+      return Promise.resolve(
+        new Response(JSON.stringify(rows), {
+          headers: jsonHeaders(),
+        }),
+      );
+    }
+    return fetchImpl(input, init);
+  };
+  const provider: AIProvider = {
+    ...providerReturning(MOCK_GENERATED_RECIPE),
+    generateRecipe: (_input, context) => {
+      observedContexts.push(context);
+      return Promise.resolve({
+        recipe: {
+          title: "Chicken Adobo for next time",
+          ingredients: source.ingredients.map((ingredient, index) =>
+            index === changedIngredient
+              ? { ...ingredient, quantity: index === 0 ? 2 : 4, unit: "tbsp" }
+              : ingredient
+          ),
+          instructions,
+        },
+        parentRecipeIds: [PARENT_ID],
+        substitutions: [],
+        revisionReason: explainChange
+          ? explanations[changedIngredient]
+          : undefined,
+      });
+    },
+  };
+  const revise = (noteExcerpt: string) =>
+    handler(
+      generateRequest(
+        JSON.stringify({ sourceRecipeId: PARENT_ID, noteExcerpt }),
+      ),
+      {
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch,
+        provider,
+      },
+    );
+
+  for (const [index, noteExcerpt] of [salty, tang].entries()) {
+    changedIngredient = index;
+    const response = await revise(noteExcerpt);
+    assertEquals(response.status, 200);
+    const result = await response.json();
+    const original = source.ingredients[index];
+    assertEquals(result.revision.noteExcerpt, noteExcerpt);
+    assertEquals(result.revision.ingredient, original.name);
+    assertEquals(result.revision.ingredientIndex, index);
+    assertEquals(result.revision.reason, explanations[index]);
+    assertEquals(
+      result.recipe.ingredients[1 - index],
+      source.ingredients[1 - index],
+    );
+    assertEquals(result.revision.before, {
+      quantity: original.quantity,
+      unit: original.unit,
+    });
+    assertEquals(result.revision.after, {
+      quantity: index === 0 ? 2 : 4,
+      unit: "tbsp",
+    });
+    assertEquals(result.parents.map((parent: { id: string }) => parent.id), [
+      PARENT_ID,
+    ]);
+    const token = await verifyCandidateToken(result.candidate_token, {
+      userId: VERIFIED_USER_ID,
+      secret: TEST_CANDIDATE_TOKEN_SECRET,
+    });
+    assertEquals(token.ok ? token.claims.parent_recipe_ids : null, [PARENT_ID]);
+    assertEquals(
+      JSON.stringify(observedContexts[index]).includes(noteExcerpt),
+      true,
+    );
+    assertEquals(
+      JSON.stringify(observedContexts[index]).includes(
+        "Unrelated personal note",
+      ),
+      false,
+    );
+  }
+
+  source.ingredients[1].name = "soy sauce";
+  changedIngredient = 1;
+  const repeatedName = await revise(salty);
+  assertEquals(repeatedName.status, 200);
+  assertEquals((await repeatedName.json()).revision.ingredientIndex, 1);
+  source.ingredients[1].name = "vinegar";
+
+  changedIngredient = -1;
+  const unsupported = await revise(salty);
+  assertEquals(unsupported.status, 422);
+  assertEquals(
+    (await unsupported.json()).error.code,
+    "REVISION_CHANGE_UNSUPPORTED",
+  );
+
+  changedIngredient = 0;
+  instructions = [{ step: 1, text: "Roast the chicken for an hour." }];
+  const unrelatedRewrite = await revise(salty);
+  assertEquals(unrelatedRewrite.status, 422);
+  instructions = source.instructions;
+
+  explainChange = false;
+  const missingExplanation = await revise(salty);
+  assertEquals(missingExplanation.status, 422);
+
+  const stale = await revise("A note no longer in the recipe.");
+  assertEquals(stale.status, 409);
+  assertEquals((await stale.json()).error.code, "REVISION_NOTE_CHANGED");
+
+  for (
+    const [count, text] of [[9, "a".repeat(1000)], [3, "煮".repeat(1000)], [
+      5,
+      '"\\'.repeat(500),
+    ]] as const
+  ) {
+    rows = [{
+      ...source,
+      instructions: Array.from(
+        { length: count },
+        (_, index) => ({ step: index + 1, text }),
+      ),
+    }];
+    const providerCalls = observedContexts.length;
+    const quotaCalls = requests.filter(({ path }) =>
+      path === "/rest/v1/rpc/consume_ai_quota"
+    ).length;
+    const oversized = await revise(salty);
+    assertEquals(oversized.status, 422);
+    assertEquals(
+      (await oversized.json()).error.code,
+      "REVISION_SOURCE_TOO_LARGE",
+    );
+    assertEquals(observedContexts.length, providerCalls);
+    assertEquals(
+      requests.filter(({ path }) => path === "/rest/v1/rpc/consume_ai_quota")
+        .length,
+      quotaCalls,
+    );
+  }
+
+  rows = [{ ...source, user_id: FOREIGN_PARENT_ID }];
+  assertEquals((await revise(salty)).status, 404);
+  rows = [];
+  assertEquals((await revise(salty)).status, 404);
+  assertEquals(observedContexts.length, 6);
+  assertNoDatabaseWrites(requests);
 });

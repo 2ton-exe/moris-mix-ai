@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ComponentPropsWithoutRef, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { BrandMark } from './BrandMark'
 import { KitchenBackground } from './KitchenBackground'
 import { Mori, MoriEmblem, type MoriMood } from './Mori'
-import { JournalSurface, PaperCard, PaperClip, Stamp, Tape } from './Scrapbook'
+import { JournalSurface, PaperCard, PaperClip, Tape } from './Scrapbook'
 
 export function JournalAuthScene({ children }: { children: ReactNode }) {
   return <div className="mm-auth-desk">
@@ -12,13 +12,15 @@ export function JournalAuthScene({ children }: { children: ReactNode }) {
       <Link className="mm-auth-brand" to="/demo-recipe" aria-label="MORI'S MIX, view a demonstration recipe">
         <BrandMark />
       </Link>
-      <span className="mm-auth-welcome">A little room for what’s cooking.</span>
+      <nav className="mm-auth-toolbar__links" aria-label="Explore Mori’s Mix">
+        <Link to="/about">How the journal works</Link>
+        <Link to="/demo-recipe">Read a sample recipe</Link>
+      </nav>
     </header>
     <div className="mm-auth-stage">
       {children}
       <JournalCover />
     </div>
-    <p className="mm-auth-caption">A place for the meals that become yours.</p>
   </div>
 }
 
@@ -38,21 +40,28 @@ export function JournalAuthCard({
   title,
   description,
   mood = 'happy',
+  focusHeading = false,
   children,
+  ...attributes
 }: {
-  eyebrow: string
+  eyebrow?: string
   title?: string
   description?: ReactNode
   mood?: MoriMood
+  focusHeading?: boolean
   children: ReactNode
-}) {
-  return <PaperCard className="mm-auth-card" surface="parchment">
+} & Pick<ComponentPropsWithoutRef<'div'>, 'aria-busy' | 'aria-hidden' | 'inert'>) {
+  const heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    if (focusHeading) heading.current?.focus()
+  }, [focusHeading, title])
+  return <PaperCard {...attributes} className="mm-auth-card" surface="parchment">
     <Tape variant="sage" className="mm-auth-card__tape" />
     <PaperClip className="mm-auth-card__clip" />
     <div className="mm-auth-card__heading">
       <div className="mm-auth-card__heading-copy">
-        <p className="mm-auth-card__eyebrow">{eyebrow}</p>
-        {title && <h1>{title}</h1>}
+        {eyebrow && <p className="mm-auth-card__eyebrow">{eyebrow}</p>}
+        {title && <h1 ref={heading} tabIndex={focusHeading ? -1 : undefined}>{title}</h1>}
         {description && <div className="mm-auth-card__description">{description}</div>}
       </div>
       <Mori mood={mood} size={62} label="Mori, the little chef" animated />
@@ -62,5 +71,5 @@ export function JournalAuthCard({
 }
 
 export function JournalAuthFooter({ children }: { children: ReactNode }) {
-  return <div className="mm-auth-card__footer">{children}<Stamp tone="burgundy">Kept with care</Stamp></div>
+  return <div className="mm-auth-card__footer">{children}</div>
 }

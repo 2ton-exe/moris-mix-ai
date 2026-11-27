@@ -1,6 +1,8 @@
 /* UI-01 writing folio: one form owns both leaves and its compact footer. */
 .recipe-form:has(.mm-desk--writing) { margin: 0; min-width: 0; }
 .mm-desk--writing .recipe-form-content { height: 100%; min-height: 0; }
+.mm-journal-page .recipe-form,
+.mm-journal-page .recipe-form-content { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .mm-desk--writing :is(.mm-journal-flyleaf, .mm-journal-page) {
   --mm-journal-paper-color: #fbf9f2;
   --mm-journal-paper-image: var(--mm-page-curve), var(--mm-tex-grain);
@@ -15,7 +17,7 @@
 .mm-desk--writing .recipe-form-controls { min-width: 0; margin: 0; padding: 0; border: 0; }
 .mm-desk--writing .recipe-form-section { margin: 0 0 24px; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .mm-desk--writing .recipe-form-section h2 { margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1.5px solid rgb(98 32 49 / .28); color: var(--mm-color-ink); font: 600 21px/1.2 var(--mm-font-serif); }
-.mm-desk--writing .mm-form-identity .recipe-form-section:first-child h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.mm-desk--writing .mm-form-identity .recipe-form-section:first-child > .recipe-section-heading > h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .mm-desk--writing .recipe-form-field { min-width: 0; margin: 0 0 14px; }
 .mm-desk--writing .recipe-form-field label { display: block; margin-bottom: 4px; color: var(--mm-color-ink-soft); font: 700 11px/1.35 var(--mm-font-sans); letter-spacing: .07em; text-transform: uppercase; }
 .mm-desk--writing .recipe-form-field :is(input, textarea, select) { display: block; width: 100%; min-width: 0; min-height: 44px; padding: 7px 3px; border: 0; border-bottom: 2px solid rgb(87 70 53 / .48); border-radius: 0; color: var(--mm-color-ink); background: transparent; box-shadow: none; font: 400 1rem/1.5 var(--mm-font-sans); }
@@ -96,15 +98,24 @@
   @container (min-width: 20rem) {
     .recipe-ingredient-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
     .recipe-ingredient-fields > :first-child { grid-column: 1 / -1; }
-    .mm-desk--writing .recipe-form-section:has(> .mm-row-add) .recipe-section-heading {
+    .mm-desk--writing .recipe-form-section:has(> .mm-row-add) {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      column-gap: 8px;
+    }
+    .mm-desk--writing .recipe-form-section:has(> .mm-row-add) > :not(.recipe-section-heading, .mm-row-add) {
+      grid-column: 1 / -1;
+    }
+    .mm-desk--writing .recipe-form-section:has(> .mm-row-add) > .recipe-section-heading {
       min-height: 46px;
-      padding-inline-end: 170px;
+      grid-row: 1;
+      grid-column: 1;
       margin-bottom: 4px;
     }
     .mm-desk--writing .recipe-form-section > .mm-row-add {
-      position: absolute;
-      inset-block-start: 0;
-      inset-inline-end: 0;
+      grid-row: 1;
+      grid-column: 2;
+      align-self: start;
     }
   }
   .mm-journal-editor .mm-writing-leaf textarea[name^='instructions.'] { min-height: 4lh; }

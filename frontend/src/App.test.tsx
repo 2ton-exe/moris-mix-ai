@@ -8,5 +8,5 @@ it('loads a public page through the shared route tree', async () => {
 
   render(<RouterProvider router={router} />)
 
-  expect(await screen.findByRole('heading', { name: 'A place for the meals that become yours.' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Keep your recipes close.' })).toBeTruthy()
 })

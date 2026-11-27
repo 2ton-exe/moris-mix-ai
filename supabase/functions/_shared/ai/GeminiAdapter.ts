@@ -7,21 +7,24 @@ import type {
   AIProvider,
   ExtractedRecipe,
   ExtractRecipeInput,
-  GeneratedRecipe,
+  GeneratedRevision,
   GenerateRecipeContext,
   GenerateRecipeInput,
 } from "./AIProvider.ts";
 import {
   buildChefPrompt,
   buildExtractionPrompt,
+  buildRecipeRevisionPrompt,
   CHEF_PROMPT,
   EXTRACTION_PROMPT,
   type PromptTemplate,
+  RECIPE_REVISION_PROMPT,
 } from "./prompts.ts";
 import {
   AI_OUTPUT_SIZE_LIMIT_MESSAGE,
   ExtractedRecipeSchema,
   GeneratedRecipeSchema,
+  GeneratedRevisionSchema,
   MAX_AI_OUTPUT_JSON_BYTES,
 } from "./schemas.ts";
 
@@ -110,6 +113,7 @@ function retryAfterSecondsFromMs(
 /** Stable failure codes that the AI-05 endpoint maps to HTTP statuses. */
 export type AIErrorCode =
   | "invalid_output"
+  | "revision_change_unsupported"
   | "internal_error"
   | "provider_rejected"
   | "provider_timeout"
@@ -288,7 +292,17 @@ export class GeminiAdapter implements AIProvider {
   generateRecipe(
     _input: GenerateRecipeInput,
     context: GenerateRecipeContext,
-  ): Promise<GeneratedRecipe> {
+  ): Promise<GeneratedRevision> {
+    if ("source" in context) {
+      return this.runOperation(
+        "generate",
+        RECIPE_REVISION_PROMPT,
+        buildRecipeRevisionPrompt(context),
+        (raw) =>
+          parseGenerationResponse(raw, new Set([context.source.id]), true),
+      );
+    }
+
     const allowedParentIds = new Set(
       context.recipes.map((recipe) => recipe.id),
     );
@@ -560,7 +574,8 @@ export function parseExtractionResponse(raw: string): ExtractedRecipe {
 export function parseGenerationResponse(
   raw: string,
   allowedParentIds: ReadonlySet<string>,
-): GeneratedRecipe {
+  revision = false,
+): GeneratedRevision {
   if (new TextEncoder().encode(raw).byteLength > MAX_AI_OUTPUT_JSON_BYTES) {
     throw new AIError(
       "output_truncated",
@@ -584,7 +599,8 @@ export function parseGenerationResponse(
     );
   }
 
-  const parsed = GeneratedRecipeSchema.safeParse(value);
+  const parsed = (revision ? GeneratedRevisionSchema : GeneratedRecipeSchema)
+    .safeParse(value);
   if (!parsed.success) {
     if (
       parsed.error.issues.some((issue) =>

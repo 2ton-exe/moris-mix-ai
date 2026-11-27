@@ -59,7 +59,7 @@ try {
   process.stdout.write(`Isolated visual server: ${origin}\n`)
   browser = await chromium.launch({ channel: 'chrome', headless: true })
   for (const width of [1440, 1280, 768, 390, 320]) {
-    const context = await browser.newContext({ viewport: { width, height: 900 } })
+    const context = await browser.newContext({ viewport: { width, height: width === 1280 ? 720 : 900 } })
     const errors = []
     const page = await context.newPage()
     page.on('pageerror', (error) => errors.push(error.message))
@@ -116,6 +116,41 @@ try {
     await page.screenshot({ path: path.join(outputDir, `${width}-create.png`), fullPage: true })
     await assertNoOverflow(page, 'Recipe form', width)
     if (phase === 'after') await assertPaperControls(page, `${width}px recipe form`)
+    if (phase === 'after' && width >= 1280) {
+      for (const [route, heading, name] of [
+        ['app/quick-entry', 'Quick AI Entry', 'quick-entry'],
+        ['app/chef', 'What’s in your pantry?', 'chef'],
+        ['home', 'Good meals deserve a page.', 'home'],
+        ['about', 'Keep your recipes close.', 'about'],
+      ]) {
+        await page.goto(`${origin}${route}`)
+        await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible()
+        await page.screenshot({ path: path.join(outputDir, `${width}-${name}.png`), fullPage: true })
+        await assertNoOverflow(page, name, width)
+        if (name === 'quick-entry') {
+          const contained = await page.locator('.mm-quick-ai__support').evaluate((node) => {
+            const content = node.getBoundingClientRect()
+            const paper = node.closest('.mm-journal-flyleaf').getBoundingClientRect()
+            return content.left >= paper.left && content.right <= paper.right && content.top >= paper.top && content.bottom <= paper.bottom
+          })
+          assert.ok(contained, 'Quick AI support stays inside the facing paper')
+          if (width === 1280) {
+            const submit = page.getByRole('button', { name: 'Organize my notes' })
+            const actionFits = await submit.evaluate((node) => {
+              const action = node.getBoundingClientRect()
+              const sheet = node.closest('.mm-quick-ai__sheet').getBoundingClientRect()
+              return action.top >= sheet.top && action.bottom <= sheet.bottom
+            })
+            assert.ok(actionFits, 'Quick AI submit fits inside the notes sheet')
+            await submit.click()
+            await expect(page.getByRole('alert')).toContainText('Add a few cooking notes')
+            const notes = page.getByRole('textbox', { name: 'Cooking notes' })
+            await notes.fill('QA03_MALFORMED\nrough cooking notes')
+            await expect(notes).toHaveValue('QA03_MALFORMED\nrough cooking notes')
+          }
+        }
+      }
+    }
     await page.evaluate(() => {
       globalThis.localStorage.clear()
       globalThis.localStorage.setItem('visual-logged-out', 'true')

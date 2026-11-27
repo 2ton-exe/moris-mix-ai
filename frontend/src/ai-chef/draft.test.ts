@@ -56,6 +56,19 @@ describe('account-scoped AI Chef session drafts', () => {
     expect(readChefDraftResult('chef-roundtrip', storage)).toEqual({ draft, status: 'available' })
   })
 
+  it('restores a revision handoff with legacy amounts without losing its selected note', () => {
+    const storage = new MemoryStorage()
+    const request = { sourceRecipeId: '123e4567-e89b-42d3-a456-426614174000', noteExcerpt: 'Use less salt.' }
+    const response = { ...handoff.response, recipe: { ...handoff.response.recipe,
+      ingredients: [{ name: 'rice', quantity: 0, unit: 'old custom unit', inferred: false }],
+    }, revision: { noteExcerpt: request.noteExcerpt, ingredient: 'rice', ingredientIndex: 0,
+      before: { quantity: 2, unit: null }, after: { quantity: 1, unit: null }, reason: 'Use a smaller amount.',
+    } }
+    const draft = { ...emptyChefDraft(), handoff: { ...handoff, request, response } }
+    expect(writeChefDraft('chef-legacy-revision', draft, storage)).toEqual({ persisted: true })
+    expect(readChefDraftResult('chef-legacy-revision', storage)).toEqual({ draft, status: 'available' })
+  })
+
   it('uses distinct per-account keys and does not expose one cook’s pantry to another', () => {
     const storage = new MemoryStorage()
     writeChefDraft('chef-account-a', { input: { pantryItems: ['rice'], pantryInput: '', preferences: '' }, handoff: null }, storage)

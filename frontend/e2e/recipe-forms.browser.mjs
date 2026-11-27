@@ -8,8 +8,10 @@ import { fileURLToPath, URL } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
-import { assertJournalGeometry, settleJournalLayout } from './journal-geometry.mjs'
+import { assertJournalGeometry, holdPaperTurn, settleJournalLayout } from './journal-geometry.mjs'
 import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
+
+const desktopOnly = process.env.MORI_DESKTOP_ONLY === 'true'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const apiOrigin = 'https://recipe-journal.example.test'
@@ -105,7 +107,7 @@ try {
   page.on('response', (response) => {
     if (response.url().startsWith(appOrigin) && response.status() >= 400) brokenResources.push(response.url())
   })
-  await context.route('**/*', async (route) => {
+  const interceptRequest = async (route) => {
     const url = new URL(route.request().url())
     if (url.origin === appOrigin) return route.continue()
     assert.equal(url.origin, apiOrigin, `Unexpected external request: ${url.origin}`)
@@ -168,13 +170,15 @@ try {
       }
     }
     return route.fulfill({ status: 404, json: { error: { code: 'UNEXPECTED_TEST_REQUEST', message: 'Unexpected isolated request' } } })
-  })
-  await page.addInitScript(({ userId }) => {
+  }
+  const authenticate = ({ userId }) => {
     const expires_at = Math.floor(Date.now() / 1000) + 3600
     const user = { id: userId, aud: 'authenticated', email: 'recipe-forms@example.test', app_metadata: {}, user_metadata: {}, created_at: '2026-10-25T00:00:00Z' }
     const token = `${globalThis.btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${globalThis.btoa(JSON.stringify({ sub: userId, exp: expires_at }))}.test-signature`
     globalThis.localStorage.setItem('sb-recipe-journal-auth-token', JSON.stringify({ access_token: token, refresh_token: 'test-refresh', expires_at, expires_in: 3600, token_type: 'bearer', user }))
-  }, { userId })
+  }
+  await context.route('**/*', interceptRequest)
+  await context.addInitScript(authenticate, { userId })
 
   const dashboardUrl = new URL('app/recipes', origin).toString()
   const createUrl = new URL('app/recipes/new', origin).toString()
@@ -192,9 +196,22 @@ try {
   assert.equal(await page.getByRole('form', { name: 'Create recipe' }).count(), 1)
   assert.equal(await page.locator('[id]').evaluateAll((nodes) => new Set(nodes.map((node) => node.id)).size === nodes.length), true, 'Form controls must not duplicate IDs')
   assert.equal(await page.locator('.mm-writing-leaf').count(), 2, 'Desktop shows coordinated facing pages')
+  const createEditorStyle = await page.getByRole('heading', { name: 'New recipe' }).evaluate((heading) => {
+    const title = globalThis.document.querySelector('textarea[name="title"]')
+    const save = globalThis.document.querySelector('.recipe-form-actions [type="submit"]')
+    return {
+      heading: [globalThis.getComputedStyle(heading).fontFamily, globalThis.getComputedStyle(heading).fontSize],
+      title: [globalThis.getComputedStyle(title).borderRadius, globalThis.getComputedStyle(title).backgroundColor],
+      saveHeight: globalThis.getComputedStyle(save).height,
+    }
+  })
+  for (const name of ['Unrated', 'Expand notes']) {
+    const target = await page.getByRole('button', { name }).boundingBox()
+    assert.ok(target && target.width >= 44 && target.height >= 44, `${name} must have a visible 44px target`)
+  }
   await page.screenshot({ path: path.join(outputDir, 'create-form-1440.png'), fullPage: true })
   await page.getByRole('button', { name: 'Save recipe' }).click()
-  await expect(page.getByRole('alert')).toContainText('Please check the highlighted fields')
+  await expect(page.getByRole('alert')).toContainText('Recipe title: Enter a recipe title.')
   await expect(page.getByLabel('Recipe title')).toHaveAttribute('aria-invalid', 'true')
   await expect(page.getByLabel('Recipe title')).toBeFocused()
   await assertJournalSemantics(page, 'create validation errors')
@@ -210,6 +227,12 @@ try {
     const topEdges = amountFieldBounds.map(({ y }) => y)
     assert.ok(Math.max(...topEdges) - Math.min(...topEdges) <= 1,
       `Ingredient amount inputs must align at ${width}×${height}: ${topEdges.join(', ')}`)
+    const labelGap = await page.locator('.recipe-ingredient-edit-step .recipe-ingredient-fields').evaluate((fields) => {
+      const name = fields.querySelector('.recipe-form-field:first-child input')
+      const quantityLabel = fields.querySelector('.recipe-amount-row .recipe-form-field:first-child label')
+      return quantityLabel.getBoundingClientRect().top - name.getBoundingClientRect().bottom
+    })
+    assert.ok(labelGap >= 8, `Ingredient labels must clear the name focus ring at ${width}×${height}: ${labelGap}px`)
     await page.getByRole('button', { name: 'Done' }).click({ trial: true })
     const leaves = await page.locator('.mm-writing-leaf').evaluateAll((pages) =>
       pages.map((leaf) => ({ client: leaf.clientHeight, scroll: leaf.scrollHeight })))
@@ -305,12 +328,76 @@ try {
   await page.getByRole('button', { name: 'Done' }).click()
 
   const readsBeforePageTurns = recipeReadRequests.length
-  await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
-  await page.getByRole('button', { name: 'Add cooking step' }).click()
+  const paperTexture = await page.locator('.mm-journal-spread > .mm-journal-page').evaluate((paper) => globalThis.getComputedStyle(paper).backgroundImage)
+  const saveShadow = await page.getByRole('button', { name: 'Save recipe' }).evaluate((button) => globalThis.getComputedStyle(button).boxShadow)
+  assert.notEqual(saveShadow, 'none')
+  await page.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
+  const turn = page.locator('[data-journal-page-turn]')
+  const turningPaper = turn.locator('.mm-turn-face--front .mm-journal-page')
+  await expect(turningPaper).toHaveCSS('background-image', paperTexture)
+  await expect(turningPaper.locator('button').filter({ hasText: 'Save recipe' })).toHaveCSS('box-shadow', saveShadow)
+  const midpoint = await turn.evaluate((layer) => {
+    const sample = (progress) => layer.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
+    let start = 0
+    let end = 1
+    for (let i = 0; i < 12; i++) {
+      const progress = (start + end) / 2
+      sample(progress)
+      if (Number(layer.dataset.travel) < .5) start = progress
+      else end = progress
+    }
+    const revealedPage = layer.querySelector('.mm-turn-under--right .mm-journal-page')
+    const footer = revealedPage.querySelector('.mm-journal-page-footer')
+    return {
+      paper: globalThis.getComputedStyle(revealedPage).backgroundImage,
+      opacity: globalThis.getComputedStyle(footer).opacity,
+      hasSave: [...footer.querySelectorAll('button')].some((button) => button.textContent.includes('Save recipe')),
+    }
+  })
+  assert.equal(midpoint.opacity, '1', 'The exposed recipe footer stays visible as the sheet crosses the spine')
+  assert.ok(midpoint.hasSave, 'The revealed footer contains its controls')
+  assert.equal(midpoint.paper, paperTexture, 'The cooking-method spread keeps the recipe paper during the turn')
+  await page.screenshot({ path: path.join(outputDir, 'new-recipe-mid-turn.png') })
+  await turn.evaluate((layer) => layer.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
+  await turn.waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: /^Add (?:cooking )?step$/ }).click()
   await page.getByLabel('Step 1 description').fill('Chop the tomatoes.')
-  await page.getByRole('button', { name: 'Add cooking step' }).click()
+  await page.getByRole('button', { name: /^Add (?:cooking )?step$/ }).click()
   await page.getByLabel('Step 2 description').fill('Warm the olive oil.')
-  await page.getByRole('button', { name: 'Move step 1 down' }).click()
+  await page.getByRole('button', { name: /^Add (?:cooking )?step$/ }).click()
+  await page.getByLabel('Step 3 description').fill('Simmer until tender.')
+  const compactSteps = await page.locator('.recipe-step-card').evaluateAll(cards => cards.map(card => ({
+    height: card.getBoundingClientRect().height,
+    leaf: card.closest('[data-writing-leaf-key]').dataset.writingLeafKey,
+    lineHeight: parseFloat(globalThis.getComputedStyle(card.querySelector('textarea')).lineHeight),
+    fits: card.querySelector('textarea').scrollHeight <= card.querySelector('textarea').clientHeight + 2,
+  })))
+  assert.equal(compactSteps.length, 3)
+  assert.equal(new Set(compactSteps.map(step => step.leaf)).size, 1, 'Three short steps share one leaf')
+  assert.ok(compactSteps.every(step => step.height <= 100 && step.lineHeight >= 24 && step.fits), 'Compact steps retain readable line height and show all text')
+  await page.screenshot({ path: path.join(outputDir, 'compact-cooking-method-1440.png') })
+  await page.getByRole('button', { name: 'Remove step 3' }).click()
+  const firstStepGrip = page.getByRole('button', { name: 'Move step 1', exact: true })
+  const secondStepGrip = page.getByRole('button', { name: 'Move step 2', exact: true })
+  await firstStepGrip.press('Enter')
+  const moveStepDialog = page.getByRole('dialog', { name: 'Move step' })
+  await moveStepDialog.getByLabel('Move to position').fill('2')
+  await moveStepDialog.getByLabel('Move to position').press('Enter')
+  await expect(page.getByLabel('Step 1 description')).toHaveValue('Warm the olive oil.')
+  await expect(secondStepGrip).toBeFocused()
+
+  const from = await secondStepGrip.boundingBox()
+  const to = await firstStepGrip.boundingBox()
+  assert.ok(from && to, 'Both step grips must be visible for drag reordering')
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 })
+  await page.mouse.up()
+  await expect(page.getByLabel('Step 1 description')).toHaveValue('Chop the tomatoes.')
+
+  await firstStepGrip.press('Enter')
+  await moveStepDialog.getByLabel('Move to position').fill('2')
+  await moveStepDialog.getByLabel('Move to position').press('Enter')
   await expect(page.getByLabel('Step 1 description')).toHaveValue('Warm the olive oil.')
   assert.equal(recipeReadRequests.length, readsBeforePageTurns, 'Page navigation must not make recipe API requests')
   await expect(page.getByLabel('Step 2 description')).toHaveValue('Chop the tomatoes.')
@@ -340,7 +427,7 @@ try {
   await expect(page.getByRole('heading', { name: 'Ingredients', exact: true })).toBeInViewport()
   await notes.fill('A little olive oil made the edges sweet.')
   await page.screenshot({ path: path.join(outputDir, 'create-draft-first-spread-1440.png'), fullPage: true })
-  await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
+  await turnPage(page, page.getByRole('button', { name: /^Next(?::| Pages?$)/ }))
   saveFailures = 1
   saveGate = gate()
   await page.getByRole('button', { name: 'Save recipe' }).click()
@@ -403,7 +490,33 @@ try {
   await expect(page).toHaveURL(editUrl(initialRecipe.id))
   await expect(page.getByLabel('Recipe title')).toHaveValue(initialRecipe.title)
   await expect(page.getByRole('textbox', { name: 'Notes' })).toHaveValue(initialRecipe.notes)
+  const editSave = page.getByRole('button', { name: 'Save changes' })
+  await expect(editSave).toHaveAccessibleDescription('No unsaved changes')
+  await expect(page.getByText('Use the pencil to edit an ingredient.', { exact: false })).toBeVisible()
+  const editEditorStyle = await page.getByRole('heading', { name: 'Edit recipe', exact: true }).evaluate((heading) => {
+    const title = globalThis.document.querySelector('textarea[name="title"]')
+    const save = globalThis.document.querySelector('.recipe-form-actions [type="submit"]')
+    return {
+      heading: [globalThis.getComputedStyle(heading).fontFamily, globalThis.getComputedStyle(heading).fontSize],
+      title: [globalThis.getComputedStyle(title).borderRadius, globalThis.getComputedStyle(title).backgroundColor],
+      saveHeight: globalThis.getComputedStyle(save).height,
+    }
+  })
+  assert.deepEqual(editEditorStyle, createEditorStyle, 'Create and edit share their heading, title field, and action styles')
+  const editRating = page.getByRole('group', { name: 'Rating', exact: true })
+  await expect(editRating).toBeVisible()
+  for (const name of ['Clear rating', 'Expand notes']) {
+    const target = await page.getByRole('button', { name }).boundingBox()
+    assert.ok(target && target.width >= 44 && target.height >= 44, `Edit ${name} must have a visible 44px target`)
+  }
+  await expect(page.locator('.mm-scrapbook-form__tape')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Expand notes' }).click()
+  const notesDialog = page.getByRole('dialog', { name: 'Notes' })
+  await expect(notesDialog).toBeVisible()
+  await expect(notesDialog.getByRole('textbox', { name: 'Full notes' })).toBeVisible()
+  await notesDialog.getByRole('button', { name: 'Done' }).click()
   await page.getByLabel('Recipe title').fill('A favorite revisited')
+  await expect(editSave).toHaveAccessibleDescription('Unsaved changes')
   saveFailures = 1
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByRole('alert')).toContainText('Could not confirm whether your recipe was saved')
@@ -420,8 +533,8 @@ try {
   await page.goto(detailUrl(initialRecipe.id))
   await expect(page.getByRole('heading', { name: 'A favorite revisited', level: 1 })).toBeVisible()
   await page.getByRole('link', { name: 'Edit recipe' }).click()
-  await page.getByRole('button', { name: 'Back to journal', exact: true }).click()
-  await expect(page).toHaveURL(new URL('app/recipes', origin).toString())
+  await page.getByRole('button', { name: 'Back to recipe', exact: true }).click()
+  await expect(page).toHaveURL(detailUrl(initialRecipe.id))
   process.stdout.write('Edit: existing values, PATCH failure/retry/success, and detail-to-edit route behavior passed.\n')
 
   // Flexible units use the existing save/reload/edit journey with isolated REST storage.
@@ -524,8 +637,40 @@ try {
   await expect(unit).toHaveValue('')
   await page.getByRole('button', { name: 'Done' }).click()
   process.stdout.write('Flexible units: desktop popup geometry, aliases, keyboard, custom/empty units, fractional quantity, description precedence/restoration, and save/reload/edit passed.\n')
+  const methodless = { ...initialRecipe, id: 'methodless-recipe', title: 'Recipe without a method', instructions: [] }
+  recipes.set(methodless.id, methodless)
+  await page.goto(detailUrl(methodless.id) + '?read=instructions-empty')
+  const addCookingSteps = page.getByRole('link', { name: 'Add cooking steps' })
+  await addCookingSteps.click()
+  await expect(page).toHaveURL(editUrl(methodless.id) + '?section=method')
+  const addStep = page.getByRole('button', { name: /^Add (cooking )?step$/ })
+  await expect(addStep).toBeFocused()
+  await addStep.press('Enter')
+  await page.getByRole('textbox', { name: 'Step 1 description' }).fill('Cook until golden.')
+  await page.getByRole('button', { name: 'Back to recipe' }).click()
+  await expect(page.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeVisible()
+  await page.getByRole('button', { name: 'Discard Changes' }).click()
+  await expect(page).toHaveURL(detailUrl(methodless.id))
+  recipes.delete(methodless.id)
 
   // Long writing data continues across physical leaves without dropping rows.
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto(editUrl(longRecipe.id))
+  const addFromFirstSpread = page.getByRole('button', { name: 'Add ingredient', exact: true })
+  await expect(addFromFirstSpread).toBeInViewport()
+  await addFromFirstSpread.press('Enter')
+  await expect(page.getByRole('textbox', { name: 'Ingredient 19 name' })).toBeFocused()
+  await page.getByRole('button', { name: 'Back to recipe', exact: true }).click()
+  await page.getByRole('button', { name: 'Discard Changes' }).click()
+  await page.goto(editUrl(longRecipe.id) + '?section=method')
+  await expect(page.getByRole('textbox', { name: 'Step 1 description', exact: true })).toBeFocused()
+  const addFromFirstMethodSpread = page.getByRole('button', { name: /^Add (cooking )?step$/ })
+  await expect(addFromFirstMethodSpread).toBeInViewport()
+  await addFromFirstMethodSpread.press('Enter')
+  await expect(page.getByRole('textbox', { name: 'Step 15 description', exact: true })).toBeFocused()
+  await page.getByRole('button', { name: 'Back to recipe', exact: true }).click()
+  await page.getByRole('button', { name: 'Discard Changes' }).click()
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(editUrl(longRecipe.id))
   await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
   await page.evaluate(() => globalThis.document.fonts.ready)
@@ -538,8 +683,15 @@ try {
   async function collectRowsAcrossPages() {
     const ingredients = new Set()
     const steps = new Set()
+    const stepTexts = new Map()
     const turns = []
     for (;;) {
+      const clippedSteps = await page.locator('.mm-journal-book > .mm-journal-spread textarea[name^="instructions."]').evaluateAll(fields => fields
+        .filter(field => field.scrollHeight > field.clientHeight + 1)
+        .map(field => ({ name: field.name, visible: field.clientHeight, content: field.scrollHeight })))
+      assert.deepEqual(clippedSteps, [], 'Method text must fit its field when a continuation page opens')
+      const parts = await page.locator('.mm-journal-book > .mm-journal-spread textarea[name^="instructions."]').evaluateAll(fields => fields.map(field => ({ name: field.name, text: field.value })))
+      parts.forEach(({ name, text }) => stepTexts.set(name, (stepTexts.get(name) ?? '') + text))
       const visible = await collectVisibleRows()
       const overflow = await page.locator('.mm-journal-book > .mm-journal-spread .mm-writing-leaf').evaluateAll((leaves) => leaves
         .filter((leaf) => leaf.scrollHeight > leaf.clientHeight + 2)
@@ -549,16 +701,17 @@ try {
       if (turns.length === 1) await page.screenshot({ path: path.join(outputDir, 'ingredient-pages-1440.png') })
       visible.ingredients.forEach((label) => ingredients.add(label))
       visible.steps.forEach((label) => steps.add(label))
-      const next = page.getByRole('button', { name: /^Next Pages?$/ })
+      const next = page.getByRole('button', { name: /^Next(?::| Pages?$)/ })
       if (!(await next.count()) || !(await next.isEnabled())) break
       await turnPage(page, next)
     }
-    return { ingredients, steps, turns }
+    return { ingredients, steps, stepTexts, turns }
   }
   assert.equal(await page.locator('.mm-writing-leaf').count(), 2)
   const allPages = await collectRowsAcrossPages()
   assert.equal(allPages.ingredients.size, 18, `All ingredient rows must be reachable on physical pages: ${JSON.stringify(allPages.turns)}`)
   assert.equal(allPages.steps.size, 14, 'All instruction steps must be reachable on physical pages')
+  assert.deepEqual([...allPages.stepTexts.values()], longRecipe.instructions.map(({ text }) => text), 'Every method character must appear exactly once in page-turn order')
   assert.deepEqual([...allPages.ingredients].sort((a, b) => Number(a) - Number(b)), Array.from({ length: 18 }, (_, index) => String(index)), 'All ingredients continue in their original order')
   assert.deepEqual(allPages.turns.flatMap(({ ingredients }) => ingredients).map(Number), Array.from({ length: 18 }, (_, index) => index), 'Physical pages retain ingredient order')
   assert.ok(allPages.turns.filter(({ ingredients }) => ingredients.length > 0).length > 1, 'Large ingredient lists continue to later physical leaves')
@@ -570,7 +723,7 @@ try {
   while (Number(await page.locator('.mm-writing-pages').getAttribute('data-form-page')) > 0) {
     await turnPage(page, page.getByRole('button', { name: 'Previous Pages' }))
   }
-  while (await page.locator('[data-ingredient-slot]').count() < 2) await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
+  while (await page.locator('[data-ingredient-slot]').count() < 2) await turnPage(page, page.getByRole('button', { name: /^Next(?::| Pages?$)/ }))
   const [sourceNumber, targetNumber] = await page.locator('[data-ingredient-slot]').evaluateAll(nodes => nodes.slice(0, 2).map(node => Number(node.dataset.ingredientSlot) + 1))
   const dragPage = await page.locator('.mm-writing-pages').getAttribute('data-form-page')
   const thirdGrip = await page.getByRole('button', { name: new RegExp(`^Move ingredient ${sourceNumber}:`) }).boundingBox()
@@ -641,17 +794,19 @@ try {
   await page.getByRole('button', { name: 'Done' }).click()
   const stepFourDescription = page.getByLabel('Step 4 description')
   while (!(await stepFourDescription.isVisible())) {
-    const nextPage = page.getByRole('button', { name: 'Next Pages' })
+    const nextPage = page.getByRole('button', { name: /^Next(?::| Pages?$)/ })
     assert(await nextPage.isEnabled(), 'Step 4 must remain reachable after ingredients continue across leaves')
     await turnPage(page, nextPage)
   }
   const movedStep = await stepFourDescription.inputValue()
-  await page.getByRole('button', { name: 'Move step 4 down' }).click()
+  await page.getByRole('button', { name: 'Move step 4', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Move step' }).getByLabel('Move to position').fill('5')
+  await page.getByRole('dialog', { name: 'Move step' }).getByLabel('Move to position').press('Enter')
   await expect(page.getByLabel('Step 5 description')).toHaveValue(movedStep)
-  await expect(page.getByLabel('Step 5 description')).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Move step 5', exact: true })).toBeFocused()
 
   // The responsive matrix exposes two coordinated leaves on desktop and one on narrow views.
-  for (const width of [1440, 1280, 1024, 390, 320]) {
+  for (const width of [1440, 1280, 1024, 390, 320].filter(width => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height: 900 })
     // Check the journal's layout from the top of the page at each viewport.
     await page.evaluate(() => globalThis.scrollTo(0, 0))
@@ -667,7 +822,7 @@ try {
   }
 
   // Real Chromium keyboard regression for physical page turns.
-  for (const { width, height } of [{ width: 1440, height: 700 }, { width: 390, height: 640 }, { width: 320, height: 640 }]) {
+  for (const { width, height } of [{ width: 1440, height: 700 }, { width: 390, height: 640 }, { width: 320, height: 640 }].filter(({ width }) => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height })
     await page.goto(editUrl(longRecipe.id))
     await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
@@ -721,8 +876,8 @@ try {
   await waitForKeyboardTurn(page, 0)
   await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
 
-  while (await page.getByRole('button', { name: /^Next Pages?$/ }).count()) {
-    await turnPage(page, page.getByRole('button', { name: /^Next Pages?$/ }))
+  while (await page.getByRole('button', { name: /^Next(?::| Pages?$)/ }).count()) {
+    await turnPage(page, page.getByRole('button', { name: /^Next(?::| Pages?$)/ }))
   }
   const finalPage = await page.locator('.mm-writing-pages').first().getAttribute('data-form-page')
   await page.locator('.mm-writing-leaf').last().focus()
@@ -758,7 +913,7 @@ try {
   await settleJournalLayout(page)
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   for (;;) {
-    const next = page.getByRole('button', { name: /^Next Pages?$/ })
+    const next = page.getByRole('button', { name: /^Next(?::| Pages?$)/ })
     if (!(await next.count()) || !(await next.isEnabled())) break
     await turnPage(page, next)
   }
@@ -768,7 +923,7 @@ try {
   assert.equal(saveRequests.at(-1).id, longRecipe.id)
   assert.equal(saveRequests.at(-1).body.ingredients.length, 18)
   assert.equal(saveRequests.at(-1).body.instructions.length, 14)
-  process.stdout.write('Long form: all 18 ingredients and 14 steps reachable, cross-spread reordering, 1440/1280/1024/390/320px, 200% reflow, reachable Save, and reduced motion passed.\n')
+  process.stdout.write(`Long form: all 18 ingredients and 14 steps reachable, cross-spread reordering, ${desktopOnly ? 'desktop 1440/1280px' : '1440/1280/1024/390/320px'}, 200% reflow, reachable Save, and reduced motion passed.\n`)
 
   // Existing delete state machine: cancel, pending, recoverable failure, retry, and confirmed 204.
   await page.setViewportSize({ width: 1440, height: 960 })
@@ -811,6 +966,119 @@ try {
   await page.screenshot({ path: path.join(outputDir, 'deleted-collection.png'), fullPage: true })
   await context.close()
   process.stdout.write(`Delete flow: cancellation, focus return, pending, recoverable failure/retry, and 204 success passed. Screenshots: ${outputDir}\n`)
+
+  const compactMethod = 'Warm the olive oil in a wide, heavy saucepan over medium heat. Add the chopped onion, carrot, celery and garlic, then stir gently until the onion is translucent and the vegetables begin to soften. Avoid browning the garlic; lower the heat if the pan feels too hot. Add the tomatoes and simmer gently, stirring from the bottom so the sauce stays smooth.'
+  for (const [width, height, maximumParts] of [[1100, 640, 3], [1280, 720, 2], [1470, 803, 1]]) {
+    const createContext = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce' })
+    try {
+      await createContext.route('**/*', interceptRequest)
+      await createContext.addInitScript(authenticate, { userId })
+      const sheet = await createContext.newPage()
+      await sheet.goto(new URL('app/recipes/new', origin).toString())
+      await sheet.evaluate(() => globalThis.document.fonts.ready)
+      await sheet.getByRole('textbox', { name: 'Recipe title', exact: true }).fill('Tomato sauce')
+      const addStep = sheet.getByRole('button', { name: /^Add (?:cooking )?step$/ })
+      for (let turn = 0; turn < 8 && !await addStep.isVisible(); turn++) await sheet.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
+      await addStep.click()
+      await sheet.getByRole('textbox', { name: 'Step 1 description', exact: true }).fill(compactMethod)
+      await settleJournalLayout(sheet)
+      const parts = []
+      for (let turn = 0; turn < 20; turn++) {
+        parts.push(...await sheet.locator('.mm-journal-book > .mm-journal-spread textarea[name^="instructions."]').evaluateAll(nodes => nodes.map(field => ({ text: field.value, fits: field.scrollHeight <= field.clientHeight + 1 }))))
+        await sheet.screenshot({ path: path.join(outputDir, `new-method-${width}-${turn}.png`) })
+        const next = sheet.getByRole('button', { name: /^Next(?::| Pages?$)/ })
+        if (!await next.count()) break
+        await next.click()
+      }
+      assert.equal(parts.map(part => part.text).join(''), compactMethod, 'New Recipe preserves every method character across its paper leaves')
+      assert.ok(parts.every(part => part.fits), 'New Recipe method fields fit their paper')
+      assert.ok(parts.length <= maximumParts, `New Recipe uses measured paper capacity at ${width}px instead of tiny text fragments`)
+    } finally { await createContext.close() }
+  }
+  process.stdout.write('New Recipe: measured desktop methods use the paper capacity without losing text or overflowing.\n')
+
+  const fontRecipe = { ...longRecipe, id: 'font-position-recipe', ingredients: longRecipe.ingredients.slice(0, 6), instructions: longRecipe.instructions.slice(0, 4) }
+  recipes.set(fontRecipe.id, fontRecipe)
+  const writesBeforeFonts = saveRequests.length
+  for (const [width, height] of [[1100, 640], [1280, 720], [1470, 803]]) {
+    for (const scenario of ['caret', 'turn']) {
+      const cold = await browser.newContext({ viewport: { width, height }, reducedMotion: scenario === 'caret' ? 'reduce' : 'no-preference' })
+      const fonts = gate()
+      try {
+        await cold.route('**/*', interceptRequest)
+        await cold.route('**/*.woff2', async route => { await fonts.promise; await route.continue() })
+        await cold.addInitScript(authenticate, { userId })
+        const sheet = await cold.newPage()
+        sheet.on('pageerror', error => pageErrors.push(error.message))
+        await sheet.goto(editUrl(fontRecipe.id) + '?section=method', { waitUntil: 'domcontentloaded' })
+        await expect(sheet.getByRole('textbox', { name: 'Step 1 description', exact: true })).toBeVisible()
+        await expect.poll(() => sheet.evaluate(() => globalThis.document.fonts.status)).toBe('loading')
+        const writing = sheet.locator('.mm-journal-book > .mm-journal-spread .mm-writing-pages')
+        const pageCount = async () => {
+          const indicator = await sheet.locator('.mm-journal-book > .mm-journal-spread .mm-pagination-number').textContent()
+          const count = Number(indicator?.match(/of (\d+)/)?.[1])
+          assert.ok(Number.isInteger(count) && count > 0, 'The prepared editor must expose a valid total page count')
+          return count
+        }
+        const fields = sheet.locator('.mm-journal-book > .mm-journal-spread textarea[data-instruction-key]')
+        const layer = sheet.locator('[data-journal-page-turn]')
+        const selection = () => sheet.evaluate(() => {
+          const field = globalThis.document.activeElement
+          return field instanceof globalThis.HTMLTextAreaElement ? {
+            key: field.dataset.instructionKey, start: Number(field.dataset.instructionOffset) + field.selectionStart,
+            end: Number(field.dataset.instructionOffset) + field.selectionEnd,
+            text: field.value.slice(field.selectionStart, field.selectionEnd),
+          } : null
+        })
+        if (scenario === 'turn') {
+          const current = Number(await writing.getAttribute('data-form-page'))
+          await sheet.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
+          await sheet.waitForFunction(() => globalThis.document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase') === 'animating')
+          await holdPaperTurn(layer)
+          await expect(writing).toHaveAttribute('data-form-page', String(current + 1))
+        } else {
+          for (let turn = 0; turn < 2; turn++) await sheet.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
+          await fields.first().focus()
+          await fields.first().press('Home')
+          for (let key = 0; key < 4; key++) await fields.first().press('ArrowRight')
+          for (let key = 0; key < 6; key++) await fields.first().press('Shift+ArrowRight')
+        }
+        const before = await selection()
+        const beforePages = await pageCount()
+        const destination = await fields.first().evaluate(field => ({ key: field.dataset.instructionKey, offset: Number(field.dataset.instructionOffset) }))
+        fonts.release()
+        await sheet.evaluate(() => globalThis.document.fonts.ready)
+        if (scenario === 'turn') {
+          await expect(layer).toHaveAttribute('data-progress', '0.5')
+          await layer.evaluate(node => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
+        }
+        await expect(layer).toHaveCount(0)
+        await settleJournalLayout(sheet)
+        assert.ok(await pageCount() < beforePages, 'Loaded fonts must replace fallback fragmentation with measured pages')
+        if (scenario === 'caret') {
+          assert.ok(before && before.end > before.start, 'The test must select actual instruction text')
+          assert.deepEqual(await selection(), before, 'Font arrival must preserve the selected source characters')
+          await sheet.setViewportSize(width === 1100 ? { width: 1280, height: 720 } : { width: 1100, height: 640 })
+          await settleJournalLayout(sheet)
+          assert.deepEqual(await selection(), before, 'Desktop reflow must preserve the selected source characters')
+        } else {
+          assert.ok(await fields.evaluateAll((nodes, destination) => nodes.some(field => field.dataset.instructionKey === destination.key
+            && Number(field.dataset.instructionOffset) <= destination.offset && Number(field.dataset.instructionOffset) + field.value.length > destination.offset), destination), 'The arrived page must retain its pre-font text destination')
+        }
+        assert.deepEqual(await fields.evaluateAll(nodes => nodes.filter(field => {
+          const leaf = field.closest('.mm-writing-leaf')
+          return field.scrollHeight > field.clientHeight + 1 || leaf.scrollHeight > leaf.clientHeight + 2
+        }).map(field => field.name)), [], 'Settled method fields must fit the paper after font loading and reflow')
+        await sheet.screenshot({ path: path.join(outputDir, `font-position-${width}-${scenario}.png`) })
+      } finally {
+        fonts.release()
+        await cold.close()
+      }
+    }
+  }
+  assert.equal(saveRequests.length, writesBeforeFonts, 'Font loading and reflow must not save the recipe')
+  assert.deepEqual(pageErrors, [])
+  process.stdout.write('Cold fonts: source selections survive font arrival and desktop reflow; active paper turns keep their text destination.\n')
 } finally {
   await browser?.close()
   await server.close()

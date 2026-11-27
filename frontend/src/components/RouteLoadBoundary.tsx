@@ -4,6 +4,7 @@ import { ErrorState } from './ErrorState'
 interface Props {
   children: ReactNode
   resetKey: unknown
+  wrapError?: (error: ReactNode) => ReactNode
 }
 
 interface State {
@@ -24,7 +25,8 @@ export class RouteLoadBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
-      return <ErrorState message="Could not load this page. Reload to try again." onRetry={() => window.location.reload()} />
+      const error = <ErrorState message="Could not load this page. Reload to try again." onRetry={() => window.location.reload()} />
+      return this.props.wrapError ? this.props.wrapError(error) : error
     }
     return this.props.children
   }

@@ -10,6 +10,7 @@ import { useMoriFieldFocus } from '../mori/routeState'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { JournalPagination } from '../journal/JournalPagination'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
+import { useJournalMedia } from '../journal/useJournalMedia'
 import { PaperCard, ScrapLabel } from '../journal/Scrapbook'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import { journalReturnTo } from '../journal/indexNavigation'
@@ -20,6 +21,7 @@ import { InvalidExtractionResponse, extractRecipeApi, MAX_EXTRACTION_INPUT_CHARS
 import type { QuickAiEntryHandoff } from './extractRecipe'
 import { readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from './draft'
 import type { QuickAiBlockReason, QuickAiEntryDraft } from './draft'
+import { QuickAiEntryGuide, QuickAiEntryHeading, quickAiNotesHelp } from './QuickAiEntryScaffold'
 import './quickAiEntry.css'
 
 interface EntryError {
@@ -132,6 +134,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   extract: ExtractRecipe
   onExtracted?: (handoff: QuickAiEntryHandoff) => void
 }) {
+  const desktopSpread = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
   const { isTurning, requestPageTurn } = useJournalPageTurn()
   const location = useLocation()
   const navigate = useNavigate()
@@ -192,7 +195,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     if (!notes || !spread) return
     const measure = () => {
       const width = notes.clientWidth
-      const height = spread.clientHeight
+      const height = Number.parseFloat(getComputedStyle(spread).minHeight) || spread.clientHeight
       if (width <= 0 || height <= 0) return
       const columns = Math.max(1, Math.floor(width / 8))
       const rows = Math.max(3, Math.floor((height - 420) / 32))
@@ -439,6 +442,21 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     }
   }
 
+  const recoveryFeedback = <>
+    {retryWait > 0 && <p className="mm-quick-ai__cooldown" role="timer" aria-live="off">
+      {draft.blockedReason === 'quota'
+        ? `Today's AI limit is still in effect. Wait at least ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before retrying.`
+        : draft.blockedReason === 'auth-service-rate-limit'
+          ? `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before asking Mori to try again.`
+          : `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} for Mori's cooldown before retrying.`}
+    </p>}
+    {error && <div className="mm-quick-ai__error">
+      <p role="alert">{error.message}</p>
+      {error.code === 'UNAUTHORIZED' && <button className="button button-secondary mm-button--small" type="button" onClick={() => { void signInAgain() }}>Log out and sign in again</button>}
+    </div>}
+  </>
+  const showRecovery = page < noteParts.length && (Boolean(error) || retryWait > 0)
+
   const describedBy = [helpId, countId, validationMessage ? validationId : null, persistenceFailed ? persistenceWarningId : null].filter(Boolean).join(' ')
   return <>
     {(navigationConfirmation.open || logoutConfirmationOpen) && <UnsavedChangesDialog
@@ -448,26 +466,30 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       message="Your browser couldn't save these notes. Leaving now may lose them. Copy your notes before leaving, or choose Keep Editing."
       discardLabel={logoutPending ? 'Leaving…' : 'Leave Anyway'}
     />}
-    <JournalFacingPage className="mm-facing-content--quick-ai">
-      <header className="mm-quick-ai-intro">
-        <div>
-          <h1 tabIndex={-1}>Quick AI Entry</h1>
-          <p className="mm-quick-ai-intro__copy">Write what you cooked, including amounts and steps you remember. You can review and edit the draft before saving it.</p>
-        </div>
-      </header>
-      <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__example">
-        <h2>Example cooking notes</h2>
-        <p>Fried two eggs with garlic, then tossed them with leftover rice and a splash of soy sauce.</p>
-      </PaperCard>
+    <JournalFacingPage className={`mm-facing-content--quick-ai${desktopSpread ? ' mm-facing-content--quick-ai-task' : ''}`}>
+      {desktopSpread ? <QuickAiEntryGuide recovery={showRecovery ? recoveryFeedback : undefined} /> : <>
+        <header className="mm-quick-ai-intro">
+          <div>
+            <h1 tabIndex={-1}>Quick AI Entry</h1>
+            <p className="mm-quick-ai-intro__copy">Write what you cooked, including amounts and steps you remember. You can review and edit the draft before saving it.</p>
+          </div>
+        </header>
+        <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__example">
+          <h2>Example cooking notes</h2>
+          <p>Fried two eggs with garlic, then tossed them with leftover rice and a splash of soy sauce.</p>
+        </PaperCard>
+      </>}
     </JournalFacingPage>
 
-    <section className="mm-quick-ai mm-page-column" aria-label="Quick AI Entry notes">
+    <section className="mm-quick-ai mm-page-column" aria-label="Quick AI Entry notes"
+      data-recovery={page < noteParts.length && (Boolean(error) || retryWait > 0 || persistenceFailed) || undefined}>
+      {desktopSpread && <QuickAiEntryHeading />}
       <nav className="mm-quick-ai__back" aria-label="Sheet navigation">
         <Link to={journalReturnTo(location.state)}><span aria-hidden="true">←</span> Back to journal</Link>
       </nav>
       {page < noteParts.length && <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__sheet" role="region" aria-label={`Cooking notes page ${page + 1} of ${pageCount}`} tabIndex={0} onKeyDown={handlePageKeyDown}>
         <form id={notesId + '-form'} onSubmit={handleSubmit} noValidate>
-          <div className="mm-quick-ai__field">
+          <div className="mm-quick-ai__field" aria-busy={loading}>
             <label htmlFor={notesId}>Cooking notes</label>
             <textarea
               ref={notesRef}
@@ -494,35 +516,25 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
             </div>}
             <div className="mm-quick-ai__field-meta">
               <p className="mm-quick-ai__helper" id={helpId}>{persistenceFailed
-                ? `Your notes stay available in this app while it is open. Maximum ${MAX_EXTRACTION_INPUT_CHARS.toLocaleString()} characters.`
-                : `Your notes are saved in this browser session as you type. Maximum ${MAX_EXTRACTION_INPUT_CHARS.toLocaleString()} characters.`}</p>
+                ? 'Your notes stay available while this app is open.'
+                : desktopSpread ? quickAiNotesHelp : 'Your notes are kept in this tab as you type.'}</p>
               <p className="mm-quick-ai__count" id={countId} aria-live="off">{draft.notes.length.toLocaleString()} / {MAX_EXTRACTION_INPUT_CHARS.toLocaleString()}</p>
             </div>
             {validationMessage && <p className="mm-quick-ai__validation" id={validationId} role="alert">{validationMessage}</p>}
           </div>
 
-          <div className="mm-quick-ai__actions">
+          {loading && <p className="mm-quick-ai__loading" role="status" aria-live="polite">Mori is organizing your notes. {persistenceFailed ? 'Keep this page open.' : 'Keep this page open, or come back to your saved-in-session draft.'}</p>}
+          {!desktopSpread && recoveryFeedback}
+          {error?.code !== 'UNAUTHORIZED' && <div className="mm-quick-ai__actions">
             <button className="button button-primary" type="submit" disabled={loading || retryWait > 0}>
               {loading ? 'Mori is organizing…' : retryWait > 0 ? 'Please wait to retry' : error?.retryable ? 'Retry extraction' : 'Organize my notes'}
             </button>
-          </div>
+            {error && draft.notes.trim() && <Link className="button button-secondary mm-button--small" to="/app/recipes/new"
+              state={{ manualRecipe: { userId, source: 'quick-entry', notes: draft.notes } }}>
+              Write manually with these notes
+            </Link>}
+          </div>}
         </form>
-
-        {loading && <p className="mm-quick-ai__loading" role="status" aria-live="polite">Mori is organizing your notes. {persistenceFailed ? 'Keep this page open.' : 'Keep this page open, or come back to your saved-in-session draft.'}</p>}
-        {retryWait > 0 && <p className="mm-quick-ai__cooldown" role="timer" aria-live="off">
-          {draft.blockedReason === 'quota'
-            ? `Today's AI limit is still in effect. Wait at least ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before retrying.`
-            : draft.blockedReason === 'auth-service-rate-limit'
-              ? `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before asking Mori to try again.`
-              : `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} for Mori's cooldown before retrying.`}
-        </p>}
-        {error && <div className="mm-quick-ai__error">
-          <p role="alert">{error.message}</p>
-          <div className="mm-quick-ai__error-actions">
-            <button className="button button-secondary mm-button--small" type="button" onClick={() => notesRef.current?.focus()}>Edit Notes</button>
-            {error.code === 'UNAUTHORIZED' && <button className="button button-secondary mm-button--small" type="button" onClick={() => { void signInAgain() }}>Log out and sign in again</button>}
-          </div>
-        </div>}
       </PaperCard>}
 
       {handoff && page === noteParts.length && <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__sheet mm-quick-ai__preview-page" role="region" aria-label={`Recipe preview, page ${page + 1} of ${pageCount}`} tabIndex={0} onKeyDown={handlePageKeyDown}>

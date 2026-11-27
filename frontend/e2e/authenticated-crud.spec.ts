@@ -49,12 +49,14 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
   await test.step('edit and rate the persisted recipe', async () => {
     await page.getByRole('link', { name: 'Edit recipe' }).click()
     await page.getByLabel('Recipe title').fill(updatedTitle)
-    await page.getByLabel('Rating').selectOption('4')
+    const fourStars = page.getByRole('radio', { name: '4 stars', exact: true })
+    await page.getByRole('group', { name: 'Rating', exact: true }).locator('label').filter({ has: fourStars }).click()
+    await expect(fourStars).toBeChecked()
     await page.getByRole('button', { name: 'Save changes' }).click()
     await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
 
-    await page.getByRole('button', { name: 'Back to journal' }).click()
-    await page.getByRole('link', { name: `Open recipe ${updatedTitle}`, exact: true }).click()
+    await page.getByRole('button', { name: 'Back to recipe' }).click()
+    await expect(page.getByRole('heading', { name: updatedTitle })).toBeVisible()
     await page.reload()
     await expect(page.getByRole('heading', { name: updatedTitle })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('4 / 5', { exact: true })).toBeVisible()
@@ -102,8 +104,7 @@ test('a cook can complete recipe CRUD at a mobile viewport', async ({ page }) =>
   await page.getByLabel('Recipe title').fill(updatedTitle)
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: 'Back to journal' }).click()
-  await page.getByRole('link', { name: `Open recipe ${updatedTitle}`, exact: true }).click()
+  await page.getByRole('button', { name: 'Back to recipe' }).click()
   await expect(page.getByRole('heading', { name: updatedTitle })).toBeVisible({ timeout: 30_000 })
   await expectNoHorizontalOverflow(page)
 

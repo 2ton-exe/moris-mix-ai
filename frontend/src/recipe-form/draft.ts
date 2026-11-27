@@ -31,6 +31,7 @@ export type RecipeDraftInput = z.input<typeof recipeDraftSchema>
 
 export interface IngredientRow {
   key: string
+  originalIndex?: number
   name: string
   quantity: string
   unit: string
@@ -50,7 +51,7 @@ export interface RecipeEditorState {
 export const recipeEditorStateSchema = z.object({
   title: z.string().max(200),
   ingredients: z.array(z.object({
-    key: z.string().min(1), name: z.string().max(200), quantity: z.string(), unit: z.string().max(100), quantityText: z.string().max(200), inferred: z.boolean(),
+    key: z.string().min(1), originalIndex: z.number().int().min(0).max(99).optional(), name: z.string().max(200), quantity: z.string(), unit: z.string().max(100), quantityText: z.string().max(200), inferred: z.boolean(),
   })).max(100),
   instructions: z.array(z.object({ key: z.string().min(1), text: z.string().max(2_000) })).max(100),
   rating: z.string(),
@@ -65,8 +66,8 @@ export const emptyRecipeDraft = (): RecipeDraft => ({
 export function editorState(draft: RecipeDraft): RecipeEditorState {
   return {
     title: draft.title,
-    ingredients: draft.ingredients.map((item) => ({
-      key: crypto.randomUUID(), name: item.name, quantity: item.quantity === null ? '' : String(item.quantity),
+    ingredients: draft.ingredients.map((item, originalIndex) => ({
+      key: crypto.randomUUID(), originalIndex, name: item.name, quantity: item.quantity === null ? '' : String(item.quantity),
       unit: item.unit ?? '', quantityText: item.quantityText ?? '', inferred: item.inferred,
     })),
     instructions: [...draft.instructions].sort((a, b) => a.step - b.step)
@@ -74,6 +75,12 @@ export function editorState(draft: RecipeDraft): RecipeEditorState {
     rating: draft.star_rating === null ? '' : String(draft.star_rating),
     cookedDate: draft.cooked_at ?? '', notes: draft.notes,
   }
+}
+
+export function findOriginalIngredientIndex(rows: IngredientRow[], name: string, originalIndex?: number): number {
+  if (originalIndex !== undefined) return rows.findIndex(row => row.originalIndex === originalIndex)
+  const matches = rows.flatMap((row, index) => row.name.trim().toLowerCase() === name.trim().toLowerCase() ? [index] : [])
+  return matches.length === 1 ? matches[0] : -1
 }
 
 export function validateEditor(state: RecipeEditorState) {

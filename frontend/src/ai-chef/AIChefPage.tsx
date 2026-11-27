@@ -52,8 +52,9 @@ function AIChefSession({ userId }: { userId: string }) {
   const navigate = useNavigate()
   const { key: locationKey } = useLocation()
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
+  const splitPantry = !single
   const cards = useJournalMedia('(min-width: 1024px) and (pointer: fine)')
-  const board = useJournalMedia('(min-width: 1100px) and (min-height: 700px) and (pointer: fine)')
+  const board = useJournalMedia('(min-width: 1100px) and (min-height: 640px) and (pointer: fine)')
   const { isTurning, requestPageTurn } = useJournalPageTurn()
   const [initialRead] = useState(() => readChefDraftResult(userId))
   const [pantryEntries, setPantryEntries] = useState(() =>
@@ -72,6 +73,7 @@ function AIChefSession({ userId }: { userId: string }) {
   const [pending, setPending] = useState(false)
   const [requestError, setRequestError] = useState<string | null>(null)
   const [requestErrorForPantry, setRequestErrorForPantry] = useState(false)
+  const [manualFallbackAvailable, setManualFallbackAvailable] = useState(false)
   const [retryAt, setRetryAt] = useState(0)
   const [now, setNow] = useState(Date.now)
   const retryBlocked = retryAt > now
@@ -91,7 +93,8 @@ function AIChefSession({ userId }: { userId: string }) {
   const pantryInputRef = useRef<HTMLInputElement>(null)
   const moriFocusPantry = useMoriFieldFocus('pantry', pantryInputRef, setGuidedPantry)
   const pageRef = useRef<HTMLElement>(null)
-  const pendingFocus = useRef<'heading' | 'pantry' | null>(null)
+  const preferencesRef = useRef<HTMLTextAreaElement>(null)
+  const pendingFocus = useRef<'heading' | 'pantry' | 'preferences' | null>(null)
   const lastPageFocus = useRef<HTMLElement | null>(null)
   const measuredEnds = usePantryPageEnds({ pageRef, entries: orderedEntries, cards, single, board, view, firstLeaf: (previewLeaf ?? chefLeaf).kind === 'first', turning: isTurning, handoff: handoff !== null })
   const pantryEnds = useMemo(() => board ? [pantryEntries.length] : measuredEnds, [board, pantryEntries.length, measuredEnds])
@@ -174,6 +177,12 @@ function AIChefSession({ userId }: { userId: string }) {
       return
     }
 
+    if (pendingFocus.current === 'preferences' && preferencesRef.current) {
+      pendingFocus.current = null
+      preferencesRef.current.focus()
+      return
+    }
+
     const frame = window.requestAnimationFrame(() => {
       const active = document.activeElement
       if (!pendingFocus.current && active !== previous && active !== document.body) return
@@ -229,6 +238,7 @@ function AIChefSession({ userId }: { userId: string }) {
   function clearRequestError() {
     setRequestError(null)
     setRequestErrorForPantry(false)
+    setManualFallbackAvailable(false)
   }
 
   function retryDraftStorage() {
@@ -297,7 +307,7 @@ function AIChefSession({ userId }: { userId: string }) {
     clearRequestError()
   }
 
-  function turnPage(next: number, focus: 'heading' | 'pantry' = 'heading') {
+  function turnPage(next: number, focus: 'heading' | 'pantry' | 'preferences' = 'heading') {
     if (next < 0 || next >= pageCount || next === page || isTurning) return false
     const index = pantryEnds[next - 1] ?? 0
     const destination: ChefLeaf = next === 0 ? { kind: 'first' }
@@ -320,8 +330,8 @@ function AIChefSession({ userId }: { userId: string }) {
     if (direction && turnPage(page + direction)) event.preventDefault()
   }
 
-  async function requestSuggestion(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault()
+  async function requestSuggestion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     if (inFlight.current || handoff || Date.now() < retryAt) return
     clearRequestError()
     setEntryError(null)
@@ -380,6 +390,7 @@ function AIChefSession({ userId }: { userId: string }) {
         setRetryAt(currentTime + wait * 1000)
       }
       setRequestError(generateRecipeErrorMessage(error, timedOut))
+      setManualFallbackAvailable(pantryItems.length > 0)
     } finally {
       window.clearTimeout(timeoutId)
       inFlight.current = false
@@ -403,7 +414,7 @@ function AIChefSession({ userId }: { userId: string }) {
   const pantryList = <section className="mm-ai-chef__pantry-list" aria-label={`Pantry list, ${pantryItems.length} ${pantryItems.length === 1 ? 'item' : 'items'}`}>
     {board && <header className="mm-ai-chef__board-header">
       <h2 tabIndex={-1}>Your pantry <span>({pantryItems.length})</span></h2>
-      <div className="mm-ai-chef__board-controls">
+      {pantryItems.length >= 2 && <div className="mm-ai-chef__board-controls">
         <select aria-label="Sort pantry ingredients" value={sort} onChange={(event) => {
           setSort(event.currentTarget.value as PantrySort)
           setBoardPage(0)
@@ -412,14 +423,16 @@ function AIChefSession({ userId }: { userId: string }) {
           <option value="ascending">Sort: A → Z</option>
           <option value="descending">Sort: Z → A</option>
         </select>
-        <div className="mm-ai-chef__views" role="group" aria-label="Pantry view">
-          <button type="button" aria-label="Grid view" aria-pressed={view === 'grid'} onClick={() => { setView('grid'); setBoardPage(0) }}><Grid3X3 size={16} aria-hidden="true" /></button>
-          <button type="button" aria-label="List view" aria-pressed={view === 'list'} onClick={() => { setView('list'); setBoardPage(0) }}><List size={16} aria-hidden="true" /></button>
-        </div>
-      </div>
+        {pantryItems.length >= 3
+          ? <div className="mm-ai-chef__views" role="group" aria-label="Pantry view">
+            <button type="button" aria-label="Grid view" aria-pressed={view === 'grid'} onClick={() => { setView('grid'); setBoardPage(0) }}><Grid3X3 size={16} aria-hidden="true" /></button>
+            <button type="button" aria-label="List view" aria-pressed={view === 'list'} onClick={() => { setView('list'); setBoardPage(0) }}><List size={16} aria-hidden="true" /></button>
+          </div>
+          : null}
+      </div>}
     </header>}
     {pantryItems.length === 0
-      ? <p className="mm-ai-chef__empty"><strong>No ingredients yet.</strong><span>Add a few above to get your recipe started.</span></p>
+      ? <p className="mm-ai-chef__empty"><strong>No ingredients yet.</strong><span>{splitPantry ? 'Add a few on the left to get your recipe started.' : 'Add a few above to get your recipe started.'}</span></p>
       : <PantryCards key={board ? activeBoardPage : page} items={pantryPageItems} onRemove={removeIngredient} disabled={pending || isTurning} animate={cards} duplicateIds={pantryEntries.filter(({ identity }) => duplicateFeedback?.identities.includes(identity)).map(({ id }) => id)} />}
     {board && <nav className="mm-ai-chef__board-pages" aria-label="Pantry board pages"
       data-measure-only={measuredEnds.length === 1 || undefined} inert={measuredEnds.length === 1} aria-hidden={measuredEnds.length === 1 || undefined}>
@@ -442,11 +455,71 @@ function AIChefSession({ userId }: { userId: string }) {
       ? <Link className="button button-secondary mm-button--small" to="/app/chef/review">Open current recipe review</Link>
       : <button className="button button-secondary mm-button--small" type="button" onClick={retryDraftStorage}>Try saving this request again</button>}
   </div>
+  const pantryEntry = !handoff && <>
+    <div className="mm-ai-chef__entry" data-measure-only={!splitPantry && page !== 0 || undefined} inert={!splitPantry && page !== 0 || undefined} aria-hidden={!splitPantry && page !== 0 || undefined}>
+      {storageWarning}
+      <fieldset disabled={pending || !splitPantry && page !== 0} aria-busy={pending}>
+        <legend id="pantry-entry-heading">Pantry ingredients</legend>
+        <p className="mm-ai-chef__help" id="pantry-help">Add up to {MAX_PANTRY_ITEMS} ingredients. Press Enter to add one or paste a list separated by commas or line breaks. Cooking preferences are optional.</p>
+        <div className="mm-ai-chef__ingredient-entry">
+          <label className="visually-hidden" htmlFor="ai-chef-pantry-item">Pantry ingredient</label>
+          <input
+            ref={pantryInputRef}
+            className={guidedPantry && moriFocusPantry ? 'mori-guided-focus' : undefined}
+            id="ai-chef-pantry-item"
+            name="pantryItem"
+            type="text"
+            value={pantryInput}
+            aria-invalid={entryError ? 'true' : undefined}
+            aria-describedby={`pantry-help${entryError ? ' pantry-entry-error' : ''}${requestErrorForPantry ? ' ai-chef-request-error' : ''}`}
+            placeholder="e.g. rice, eggs, tomatoes"
+            onChange={(event) => updatePantryInput(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                addIngredients(pantryInput, 'input')
+              }
+            }}
+            onPaste={(event) => {
+              const pasted = event.clipboardData.getData('text')
+              if (!/[\r\n,]/.test(pasted)) return
+              event.preventDefault()
+              addIngredients(pasted, 'paste')
+            }}
+          />
+          <button className="button button-secondary" type={splitPantry ? 'submit' : 'button'} onClick={splitPantry ? undefined : () => addIngredients(pantryInput, 'input')}>{board && <Plus size={17} aria-hidden="true" />}Add ingredient</button>
+        </div>
+        {board && <details className="mm-ai-chef__quick-add">
+          <summary>Quick add common ingredients</summary>
+          <div className="mm-ai-chef__try">
+            {pantrySuggestions.map((name) => <button key={name} type="button"
+              disabled={pantryItems.length >= MAX_PANTRY_ITEMS || pantryEntries.some(({ identity }) => identity === normalizePantryIngredient(name).identity)}
+              onClick={() => addIngredients(name, 'suggestion')}>
+              <IngredientEmoji name={name} />{name}
+            </button>)}
+          </div>
+        </details>}
+        {entryError && <p id="pantry-entry-error" className="field-error" role="alert">{entryError}</p>}
+      </fieldset>
+      {!board && duplicatePage > 0 && <button type="button" className="button button-secondary mm-button--small" disabled={pending || isTurning}
+        onClick={() => turnPage(duplicatePage)}>Show existing ingredient</button>}
+    </div>
+    <p className="visually-hidden" role="status" aria-live="polite">{entryStatus}</p>
+  </>
 
   const progressStage = handoff?.savedRecipeId ? 'saved' : handoff ? 'review' : pending ? 'generating' : 'pantry'
+  const previousPageLabel = !splitPantry ? 'Previous' : page <= preferencesStartPage ? 'Pantry' : 'Preferences'
+  const nextPageLabel = !splitPantry ? 'Next' : page + 1 < preferencesStartPage ? 'Next ingredients'
+    : page + 1 === preferencesStartPage ? 'Cooking preferences' : 'More preferences'
 
   return <>
-    <JournalFacingPage className={`mm-facing-content--ai-chef${cards && single ? ' mm-facing-content--ai-chef-compact' : ''}`}><ChefProgress stage={progressStage} scrapbook={board} /></JournalFacingPage>
+    <JournalFacingPage className={`mm-facing-content--ai-chef${cards && single ? ' mm-facing-content--ai-chef-compact' : ''}${splitPantry && !handoff ? ' mm-facing-content--ai-chef-task' : ''}`}>
+      <ChefProgress stage={progressStage} scrapbook={board} compact={splitPantry} />
+      {splitPantry && !handoff && <form className="mm-ai-chef__entry-panel" aria-labelledby="pantry-entry-heading" onSubmit={(event) => {
+        event.preventDefault()
+        addIngredients(pantryInput, 'input')
+      }}>{pantryEntry}</form>}
+    </JournalFacingPage>
     <section className="mm-ai-chef mm-page-column" data-pantry-board={board && !handoff ? view : undefined} data-pantry-front={board && !handoff && page === 0 || undefined} aria-labelledby="ai-chef-title">
     {discardOpen && <UnsavedChangesDialog
       title={handoff?.savedRecipeId ? 'Keep the saved recipe?' : 'Discard Mori’s recipe preview?'}
@@ -484,61 +557,17 @@ function AIChefSession({ userId }: { userId: string }) {
           </div>
         </aside>}
 
+      {!splitPantry && pantryEntry}
       {!handoff && <>
-        <div className="mm-ai-chef__entry" data-measure-only={page !== 0 || undefined} inert={page !== 0} aria-hidden={page !== 0 || undefined}>
-        {storageWarning}
-        <fieldset disabled={pending || page !== 0}>
-        <legend>Pantry ingredients</legend>
-        <p className="mm-ai-chef__help" id="pantry-help">Add up to {MAX_PANTRY_ITEMS} ingredients. Separate pasted items with commas or new lines.</p>
-        <div className="mm-ai-chef__ingredient-entry">
-          <label className="visually-hidden" htmlFor="ai-chef-pantry-item">Pantry ingredient</label>
-          <input
-            ref={pantryInputRef}
-            className={guidedPantry && moriFocusPantry ? 'mori-guided-focus' : undefined}
-            id="ai-chef-pantry-item"
-            type="text"
-            value={pantryInput}
-            aria-invalid={entryError ? 'true' : undefined}
-            aria-describedby={`pantry-help${entryError ? ' pantry-entry-error' : ''}${requestErrorForPantry ? ' ai-chef-request-error' : ''}`}
-            placeholder="e.g. rice, eggs, tomatoes"
-            onChange={(event) => updatePantryInput(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                addIngredients(pantryInput, 'input')
-              }
-            }}
-            onPaste={(event) => {
-              const pasted = event.clipboardData.getData('text')
-              if (!/[,\r\n]/.test(pasted)) return
-              event.preventDefault()
-              addIngredients(pasted, 'paste')
-            }}
-          />
-          <button className={`button ${board ? 'button-primary' : 'button-secondary'}`} type="button" onClick={() => addIngredients(pantryInput, 'input')}>{board && <Plus size={17} aria-hidden="true" />}Add ingredient</button>
-        </div>
-        {board && <div className="mm-ai-chef__try">
-          <span>Try adding:</span>
-          {pantrySuggestions.map((name) => <button key={name} type="button"
-            disabled={pantryItems.length >= MAX_PANTRY_ITEMS || pantryEntries.some(({ identity }) => identity === normalizePantryIngredient(name).identity)}
-            onClick={() => addIngredients(name, 'suggestion')}>
-            <IngredientEmoji name={name} />{name}
-          </button>)}
-        </div>}
-        {entryError && <p id="pantry-entry-error" className="field-error" role="alert">{entryError}</p>}
-        </fieldset>
-        {!board && duplicatePage > 0 && <button type="button" className="button button-secondary mm-button--small" disabled={pending || isTurning}
-          onClick={() => turnPage(duplicatePage)}>Show existing ingredient</button>}
-        </div>
-        <p className="visually-hidden" role="status" aria-live="polite">{entryStatus}</p>
         <header className="mm-ai-chef__pantry-pages" data-measure-only={!continued || undefined} inert={!continued} aria-hidden={!continued || undefined}>
           <h2 id="ai-chef-pantry-page-title" tabIndex={-1}>Pantry ingredients · continued</h2>
-          <p className="mm-ai-chef__help">Return to the first page to add ingredients.</p>
+          <p className="mm-ai-chef__help">{splitPantry ? 'Keep adding ingredients on the left while you browse this list.' : 'Return to the first page to add ingredients.'}</p>
         </header>
         {page < preferencesStartPage && pantryList}
-        {page >= preferencesStartPage && <fieldset disabled={pending} aria-label="Cooking preferences">
+        {page >= preferencesStartPage && <fieldset disabled={pending} aria-busy={pending} aria-label="Cooking preferences">
         <h2 className="mm-ai-chef__pane-title" tabIndex={-1}><label className="mm-ai-chef__preferences-label" htmlFor="ai-chef-preferences">Cooking preferences <span>(optional)</span></label></h2>
         <textarea
+          ref={preferencesRef}
           id="ai-chef-preferences"
           value={preferencePart}
           maxLength={preferencePartLimit}
@@ -558,7 +587,16 @@ function AIChefSession({ userId }: { userId: string }) {
       </>}
 
       <div className="mm-ai-chef__notices" hidden={!requestError && !retryBlocked && !pending}>
-      {requestError && <div className="mm-ai-chef__request-error" role="alert"><p id={requestErrorForPantry ? 'ai-chef-request-error' : undefined}>{requestError}</p><button className="button button-secondary mm-button--small" type="button" disabled={pending || retryBlocked} onClick={() => { void requestSuggestion() }}>Try again</button></div>}
+      {requestError && <div className="mm-ai-chef__request-error" role="alert">
+        <p id={requestErrorForPantry ? 'ai-chef-request-error' : undefined}>{requestError}</p>
+        {manualFallbackAvailable && pantryItems.length > 0 && <div className="mm-ai-chef__manual-fallback">
+          <p>Your pantry list will carry over if you continue by hand.</p>
+          <Link className="button button-secondary mm-button--small" to="/app/recipes/new"
+            state={{ manualRecipe: { userId, source: 'chef', ingredients: pantryItems } }}>
+            Write recipe manually
+          </Link>
+        </div>}
+      </div>}
       {retryBlocked && <p role="status">The service asked you to wait before retrying. Your pantry and preferences remain available.</p>}
       {pending && <p className="mm-ai-chef__pending" role="status">Mori is checking your ingredients; this can take a little while.</p>}
       </div>
@@ -567,12 +605,12 @@ function AIChefSession({ userId }: { userId: string }) {
     </PaperCard>
     <JournalPageFooter>
       {!handoff && <div className="mm-ai-chef__footer-actions">
-        <button className="button button-primary" type="submit" form="ai-chef-form" disabled={pending || retryBlocked}>{board && <Sparkles size={17} aria-hidden="true" />}{pending ? 'Mori is thinking…' : 'Ask Mori for a recipe'}</button>
+        <button className="button button-primary" type="submit" form="ai-chef-form" disabled={pending || retryBlocked}>{board && <Sparkles size={17} aria-hidden="true" />}{pending ? 'Mori is thinking…' : retryBlocked ? 'Please wait to retry' : requestError && !requestErrorForPantry ? 'Retry recipe suggestion' : 'Ask Mori for a recipe'}</button>
         <p className="mm-ai-chef__save-note">Nothing is saved until you choose Save recipe.</p>
       </div>}
       <JournalPagination label="AI Chef pages" rightNumber={`Page ${page + 1} of ${pageCount}`}
-        previous={page > 0 && <button type="button" className="button mm-button--page-turn" aria-label="Previous page" disabled={isTurning} onClick={() => turnPage(page - 1)}>← Previous</button>}
-        next={page < pageCount - 1 && <button type="button" className="button mm-button--page-turn" aria-label="Next page" disabled={isTurning} onClick={() => turnPage(page + 1)}>Next →</button>} />
+        previous={page > 0 && <button type="button" className="button mm-button--page-turn" aria-label={splitPantry ? `Previous page: ${previousPageLabel}` : 'Previous page'} disabled={isTurning} onClick={() => turnPage(page - 1)}>← {previousPageLabel}</button>}
+        next={page < pageCount - 1 && <button type="button" className="button mm-button--page-turn" aria-label={splitPantry ? `Next page: ${nextPageLabel}` : 'Next page'} disabled={isTurning} onClick={() => turnPage(page + 1, !single && page + 1 >= preferencesStartPage ? 'preferences' : 'heading')}>{nextPageLabel} →</button>} />
     </JournalPageFooter>
     </section>
   </>

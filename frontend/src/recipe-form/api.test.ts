@@ -35,8 +35,8 @@ it('sends complete create and edit drafts to the REST contract', async () => {
   const api = createRecipeFormApi(client(fetchImpl))
   const request = { userId: 'cook-a', signal: new AbortController().signal }
 
-  await expect(api.save(recipeFormFixture, request)).resolves.toEqual({ id: recipeId })
-  await expect(api.save({ ...recipeFormFixture, ...updatedRecipe }, request, recipeId)).resolves.toEqual({ id: recipeId })
+  await expect(api.save(recipeFormFixture, request)).resolves.toMatchObject({ id: recipeId })
+  await expect(api.save({ ...recipeFormFixture, ...updatedRecipe }, request, recipeId)).resolves.toMatchObject({ id: recipeId })
 
   expect(fetchImpl.mock.calls.map(([, options]) => options?.method)).toEqual(['POST', 'PATCH'])
   expect(JSON.parse(fetchImpl.mock.calls[0][1]?.body as string)).toEqual(recipeFormFixture)
@@ -58,4 +58,35 @@ it('rejects a response owned by a different account', async () => {
   const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ recipe: { ...serverRecipe, user_id: 'cook-b' } }))
   const api = createRecipeFormApi(client(fetchImpl))
   await expect(api.save(recipeFormFixture, { userId: 'cook-a', signal: new AbortController().signal })).rejects.toThrow()
+})
+
+it('preserves a cooking note and cooked date added after a title editor opened', async () => {
+  const updated_at = '2026-11-27T05:00:00Z'
+  const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ recipe: { ...serverRecipe, title: 'A new title', notes: 'Added from another tab', cooked_at: '2026-11-27', updated_at } }))
+  const api = createRecipeFormApi(client(fetchImpl))
+  const result = await api.save({ ...recipeFormFixture, title: 'A new title' }, { userId: 'cook-a', signal: new AbortController().signal }, recipeId, { id: recipeId, userId: 'cook-a', values: recipeFormFixture, updatedAt: '2026-11-26T00:00:00Z' })
+  const body = fetchImpl.mock.calls[0][1]?.body
+  expect(typeof body === 'string' && JSON.parse(body)).toEqual({ title: 'A new title', ingredients: recipeFormFixture.ingredients, instructions: recipeFormFixture.instructions, star_rating: recipeFormFixture.star_rating })
+  expect(result.record.values.notes).toBe(recipeFormFixture.notes)
+  expect(result.record.values.cooked_at).toBe(recipeFormFixture.cooked_at)
+  expect(result.record.updatedAt).toBe('2026-11-26T00:00:00Z')
+  await api.save({ ...recipeFormFixture, title: 'Another title' }, { userId: 'cook-a', signal: new AbortController().signal }, recipeId, result.record)
+  const subsequent = fetchImpl.mock.calls[1][1]?.body
+  expect(typeof subsequent === 'string' && JSON.parse(subsequent)).not.toHaveProperty('notes')
+  expect(typeof subsequent === 'string' && JSON.parse(subsequent)).not.toHaveProperty('cooked_at')
+})
+
+it.each(['notes', 'cooked_at'] as const)('checks the loaded version before overwriting %s', async (field) => {
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ error: { code: 'CONFLICT' } }, { status: 409 }))
+  const draft = { ...recipeFormFixture, [field]: field === 'notes' ? 'Changed note' : '2026-11-27' }
+  const original = { id: recipeId, userId: 'cook-a', values: recipeFormFixture, updatedAt: '2026-11-26T00:00:00Z' }
+  await expect(createRecipeFormApi(client(fetchImpl)).save(draft, { userId: 'cook-a', signal: new AbortController().signal }, recipeId, original)).rejects.toMatchObject({ status: 409 })
+  const body = fetchImpl.mock.calls[0][1]?.body
+  expect(typeof body === 'string' && JSON.parse(body)).toMatchObject({ [field]: draft[field], expected_updated_at: original.updatedAt })
+})
+
+it('does not send changed cooking details without a loaded version', async () => {
+  const fetchImpl = vi.fn<typeof fetch>()
+  await expect(createRecipeFormApi(client(fetchImpl)).save({ ...recipeFormFixture, notes: 'A changed note' }, { userId: 'cook-a', signal: new AbortController().signal }, recipeId, { id: recipeId, userId: 'cook-a', values: recipeFormFixture })).rejects.toMatchObject({ status: 409 })
+  expect(fetchImpl).not.toHaveBeenCalled()
 })

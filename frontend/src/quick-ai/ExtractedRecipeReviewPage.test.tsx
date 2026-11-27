@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Session, User } from '@supabase/supabase-js'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { createMemoryRouter, createRoutesFromElements, Link, Outlet, Route, RouterProvider } from 'react-router'
+import { createMemoryRouter, createRoutesFromElements, Outlet, Route, RouterProvider } from 'react-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AuthContext } from '../auth/context'
 import type { AuthState } from '../auth/context'
@@ -9,9 +9,13 @@ import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import type { JournalLogoutGuard } from '../journal/JournalLogoutGuardContext'
 import { editorState } from '../recipe-form/draft'
 import { mapAiRecipeToDraft } from '../recipe-form/aiRecipeDraft'
+import { JournalShell } from '../journal/JournalShell'
+import { MoriCompanion } from '../mori/MoriCompanion'
+import { MoriCompanionProvider } from '../mori/MoriCompanionContext'
 import type { SaveRecipeDraft } from '../recipe-form/submission'
 import { readQuickAiEntryDraft, writeQuickAiEntryDraft } from './draft'
 import { ExtractedRecipeReviewPage } from './ExtractedRecipeReviewPage'
+import { QuickAiEntryPage } from './QuickAiEntryPage'
 
 const NativeRequest = globalThis.Request
 const sourceNotes = 'rice, eggs, garlic and soy sauce; fry the eggs first'
@@ -53,6 +57,10 @@ function seed(userId = 'cook-a') {
   })
 }
 
+function QuickAiEntryRoute() {
+  return <MoriCompanionProvider><JournalShell><QuickAiEntryPage /></JournalShell><MoriCompanion /></MoriCompanionProvider>
+}
+
 function renderReview({ userId = 'cook-a', save = vi.fn<SaveRecipeDraft>().mockResolvedValue({ id: 'saved-recipe' }), path = '/app/quick-entry/review' }: {
   userId?: string; save?: SaveRecipeDraft; path?: string
 } = {}) {
@@ -65,7 +73,7 @@ function renderReview({ userId = 'cook-a', save = vi.fn<SaveRecipeDraft>().mockR
   }
   const routes = createRoutesFromElements(<Route element={<AuthContext.Provider value={auth}><JournalLogoutGuardContext.Provider value={registerLogoutGuard}><Outlet /></JournalLogoutGuardContext.Provider></AuthContext.Provider>}>
     <Route path="/app/quick-entry/review" element={<ExtractedRecipeReviewPage save={save} />} />
-    <Route path="/app/quick-entry" element={<><h1>Quick AI Entry</h1><Link to="/app/quick-entry/review">Review again</Link></>} />
+    <Route path="/app/quick-entry" element={<QuickAiEntryRoute />} />
   </Route>)
   const router = createMemoryRouter(routes, { initialEntries: [{ pathname: path, state: { journalReturn: '/app/quick-entry', sourceJournalReturn: '/app/recipes' } }] })
   const view = render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>)
@@ -107,13 +115,17 @@ it('opens the review workflow with extraction fields and original notes kept sep
   expect(screen.getByText('1 to review')).toBeTruthy()
   expect(document.activeElement).toBe(screen.getByLabelText('Ingredient 2 name'))
   expect(readQuickAiEntryDraft('cook-a').reviewDraft?.ingredients[1].inferred).toBe(false)
-  expect((screen.getByLabelText('Rating') as HTMLSelectElement).value).toBe('')
-  expect((screen.getByLabelText('Cooked date') as HTMLInputElement).value).toBe('')
-  expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('')
+  expect((screen.getByLabelText(/^Rating(?: \(optional\))?$/) as HTMLSelectElement).value).toBe('')
+  expect((screen.getByLabelText(/^Cooked date(?: \(optional\))?$/) as HTMLInputElement).value).toBe('')
+  expect((screen.getByLabelText(/^Notes(?: \(optional\))?$/) as HTMLTextAreaElement).value).toBe('')
   const details = within(screen.getByRole('region', { name: "Mori's extraction notes" }))
   expect(details.getByText(sourceNotes)).toBeTruthy()
   expect(details.getByText(/preview only/)).toBeTruthy()
+  const draftHelp = details.getByText('Draft details').closest('details')!
+  expect(draftHelp.open).toBe(false)
+  expect(draftHelp.textContent).toContain('Return to this tab with the same account')
   expect(screen.getByRole('heading', { name: 'Review your recipe' })).toBeTruthy()
+  expect(screen.getByText(/Review each section\. Save on the last page/)).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Save recipe' })).toBeNull()
   fireEvent.submit(screen.getByRole('form', { name: 'Create recipe' }))
   expect(within(screen.getByRole('group', { name: 'Ingredient 2' })).queryByText('Quantity and unit not specified.')).toBeNull()
@@ -140,6 +152,34 @@ it('reloads a new Mori handoff when navigation stays on the review route', async
   }))
 
   expect((await screen.findByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('Garlic soy rice')
+})
+
+it('keeps one complete source behind the desktop reference disclosure', () => {
+  const notes = 'Garlic and rice.\n'.repeat(24) + 'Season after cooking.'
+  writeQuickAiEntryDraft('cook-a', {
+    notes, blockedUntil: null, blockedReason: null, handoff: { ...handoff, sourceNotes: notes }, reviewDraft: null,
+  })
+  renderReview()
+  const evidence = screen.getByRole('region', { name: "Mori's extraction notes" })
+  const [fullText] = evidence.querySelectorAll('blockquote')
+  expect(evidence.querySelectorAll('blockquote')).toHaveLength(1)
+  expect(fullText.closest('details')?.open).toBe(false)
+  expect(fullText.textContent).toBe(notes)
+})
+
+it('keeps the existing source excerpt and full-note disclosure on narrower layouts', () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query.includes('max-width') || query.includes('prefers-reduced-motion'), addEventListener: vi.fn(), removeEventListener: vi.fn(),
+  }))
+  const notes = 'Garlic and rice.\n'.repeat(24) + 'Season after cooking.'
+  writeQuickAiEntryDraft('cook-a', { notes, blockedUntil: null, blockedReason: null, handoff: { ...handoff, sourceNotes: notes }, reviewDraft: null })
+  renderReview()
+  const evidence = screen.getByRole('region', { name: "Mori's extraction notes" })
+  expect(within(evidence).getByRole('heading', { name: 'Original cooking notes' })).toBeTruthy()
+  const [excerpt, fullText] = evidence.querySelectorAll('blockquote')
+  expect(excerpt.textContent?.trimEnd().endsWith('…')).toBe(true)
+  expect(fullText.textContent).toBe(notes)
+  expect(within(evidence).getByText('Where is my draft kept?')).toBeTruthy()
 })
 
 it('persists corrected and temporarily invalid fields across remounts without saving', () => {
@@ -264,6 +304,9 @@ it('uses the authenticated existing save hook only on explicit Save and consumes
   expect(readQuickAiEntryDraft('cook-a').handoff).toBeNull()
   expect(readQuickAiEntryDraft('cook-a').reviewDraft).toBeUndefined()
   expect(readQuickAiEntryDraft('cook-a').notes).toBe(sourceNotes)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Use these notes again' }))
+  expect((await screen.findByRole('textbox', { name: 'Cooking notes' }) as HTMLTextAreaElement).value).toBe(sourceNotes)
 })
 
 it('confirms logout when the saved recipe has newer unsaved edits', async () => {
@@ -297,9 +340,23 @@ it('blocks leaving even before the user edits AI-prefilled values and keeps note
 it('shows a recoverable state for a missing handoff and never renders an empty recipe form', () => {
   sessionStorage.clear()
   renderReview()
-  expect(screen.getByRole('heading', { name: 'Nothing is waiting to be reviewed' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'No recipe draft to review' })).toBeTruthy()
   expect(screen.queryByLabelText('Recipe title')).toBeNull()
   expect(screen.getByRole('link', { name: 'Open Quick AI Entry' })).toBeTruthy()
+})
+
+it('gives desktop missing-draft recovery one action beside its heading', () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query === '(min-width: 1100px) and (min-height: 640px)',
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }))
+  sessionStorage.clear()
+  renderReview()
+
+  const recovery = screen.getByRole('heading', { name: 'No recipe draft to review' }).closest('header')
+  expect(recovery).not.toBeNull()
+  expect(within(recovery!).getAllByRole('link').map((link) => link.textContent)).toEqual(['Open Quick AI Entry'])
 })
 
 it('explains when storage read failure prevents restoring the extraction', () => {
@@ -309,14 +366,14 @@ it('explains when storage read failure prevents restoring the extraction', () =>
     return getItem.call(this, key)
   })
   renderReview()
-  expect(screen.getByRole('alert').textContent).toContain('could not read the saved session draft')
+  expect(screen.getByRole('alert').textContent).toContain('could not restore the saved draft')
   expect(screen.queryByLabelText('Recipe title')).toBeNull()
   expect(screen.getByRole('link', { name: 'Open Quick AI Entry' })).toBeTruthy()
 })
 
 it('does not expose another account’s extraction after an account change', () => {
   renderReview({ userId: 'cook-b' })
-  expect(screen.getByRole('heading', { name: 'Nothing is waiting to be reviewed' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'No recipe draft to review' })).toBeTruthy()
   expect(screen.queryByText(sourceNotes)).toBeNull()
   expect(screen.queryByDisplayValue('Garlic soy rice')).toBeNull()
 })

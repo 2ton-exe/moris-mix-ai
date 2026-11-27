@@ -79,7 +79,7 @@ async function newJournalContext(width, { empty = false, holdList = false } = {}
         listFailures--
         return route.fulfill({ status: 503, json: { error: { code: 'TEST_UNAVAILABLE', message: 'private list detail' } } })
       }
-      const list = empty || activeUserId !== userId ? [] : recipes.map(({ id, title, user_id, star_rating, cooked_at }) => ({ id, title, user_id, star_rating, cooked_at }))
+      const list = empty || activeUserId !== userId ? [] : recipes.map(({ id, title, user_id, star_rating, cooked_at, notes }) => ({ id, title, user_id, star_rating, cooked_at, notes }))
       return route.fulfill({ json: { recipes: list, has_more: false, next_cursor: null } })
     }
     const detailPrefix = '/functions/v1/recipes/'
@@ -129,6 +129,147 @@ try {
   const origin = server.resolvedUrls.local[0]
   appOrigin = new URL(origin).origin
   browser = await chromium.launch({ channel: 'chrome', headless: true })
+  if (process.env.MORI_OVERLAYS_ONLY === 'true') {
+    for (const [width, height] of [[1440, 900], [1100, 640]]) {
+      const app = await newJournalContext(width)
+      const { page } = app
+      await page.setViewportSize({ width, height })
+      let current = { ...recipe, id: '11111111-1111-4111-8111-111111111111', updated_at: '2026-11-27T00:00:00Z' }
+      let failSave = false
+      let links = 'empty'
+      await page.route(apiOrigin + '/**', async route => {
+        const request = route.request()
+        const url = new URL(request.url())
+        if (url.pathname.endsWith('/lineage')) return route.fulfill(links === 'error'
+          ? { status: 503, json: { error: { code: 'INTERNAL_ERROR', message: 'Private lineage detail' } } }
+          : { json: { lineage: links === 'empty' ? [] : [{ id: '77777777-7777-4777-8777-777777777777', parent_recipe_id: secondRecipe.id, child_recipe_id: current.id, created_at: current.updated_at }] } })
+        if (url.pathname.endsWith('/generate-recipe')) return route.fulfill({ status: 503, json: { error: { code: 'AI_DISABLED', message: 'Private generation detail' } } })
+        if (url.pathname.endsWith('/recipes/' + current.id)) {
+          if (request.method() === 'PATCH') {
+            if (failSave) return route.fulfill({ status: 503, json: { error: { code: 'INTERNAL_ERROR', message: 'Private save detail' } } })
+            const { expected_updated_at, ...changes } = request.postDataJSON()
+            assert.ok(!expected_updated_at || expected_updated_at === current.updated_at)
+            current = { ...current, ...changes, updated_at: '2026-11-27T00:01:00Z' }
+          }
+          if (request.method() === 'DELETE') return route.fulfill({ status: 503, json: { error: { code: 'INTERNAL_ERROR', message: 'Private delete detail' } } })
+          return route.fulfill({ json: { recipe: current } })
+        }
+        return route.fallback()
+      })
+      const capture = async name => {
+        await page.evaluate(() => globalThis.document.fonts.ready)
+        await page.locator('[data-reading-ready="true"]').waitFor()
+        const indicator = await page.locator('.mm-reading-indicator').innerText()
+        assert.ok(Number(indicator.match(/of (\d+)/)?.[1]) < 20, `Short fixture must not fragment into single-character leaves: ${indicator}`)
+        await page.screenshot({ path: path.join(outputDir, `${width}-${name}.png`), animations: 'disabled' })
+        const modal = page.locator('dialog[open], [role="alertdialog"]').first()
+        assert.ok(await modal.evaluate(element => element.scrollWidth <= element.clientWidth + 1), `${name}: horizontal modal overflow`)
+        await assertJournalSemantics(page, name)
+      }
+      const captureReading = async name => {
+        await page.evaluate(() => globalThis.document.fonts.ready)
+        await page.locator('[data-reading-ready="true"]').waitFor()
+        const controls = page.locator('.mm-cook-actions__controls > button')
+        const boxes = await controls.evaluateAll(elements => elements.map(element => {
+          const { top, height } = element.getBoundingClientRect()
+          return { top, height }
+        }))
+        assert.ok(boxes.every(box => box.height >= 44), 'Cooking actions retain usable targets')
+        assert.ok(Math.max(...boxes.map(box => box.top)) - Math.min(...boxes.map(box => box.top)) < 1,
+          'Cooking actions share one row, leaving the paper for reading')
+        const navigation = page.getByRole('navigation', { name: 'Jump to recipe section' })
+        assert.ok(await navigation.evaluate(element => element.scrollWidth <= element.clientWidth + 1),
+          'Section navigation stays within the paper')
+        await page.screenshot({ path: path.join(outputDir, `${width}-${name}.png`), animations: 'disabled' })
+        process.stdout.write(`${width} ${name}: ${await page.locator('.mm-reading-indicator').innerText()}, capacity ${await page.locator('[data-reading-capacity]').getAttribute('data-reading-capacity')}px\n`)
+      }
+      await page.goto(`${origin}app/recipes/${current.id}`)
+      await page.getByRole('heading', { name: recipe.title, level: 1 }).waitFor()
+      await captureReading('reading-before-record')
+      await page.getByRole('button', { name: 'Record cooking', exact: true }).click()
+      const cook = page.getByRole('dialog', { name: 'Record this cook' })
+      await capture('record-date')
+      await cook.getByRole('button', { name: 'Record cooked date', exact: true }).click()
+      await cook.getByLabel('A note for next time').fill('Use a little less salt next time.')
+      await capture('record-note')
+      await cook.getByRole('button', { name: 'Back to recipe' }).click()
+      await capture('record-discard-confirmation')
+      await expect(cook.locator('.mm-review-detail-dialog__content')).toHaveAttribute('inert', '')
+      await expect(cook.locator('.mm-review-detail-dialog__content > form')).toHaveCSS('opacity', '0.45')
+      await cook.getByRole('button', { name: 'Keep editing note' }).click()
+      await cook.getByRole('button', { name: 'Review cooking note' }).click()
+      await capture('record-review')
+      failSave = true
+      await cook.getByRole('button', { name: 'Save cooking note' }).click()
+      await expect(cook.getByRole('alert')).toContainText('Your entry is still here')
+      await capture('record-error')
+      failSave = false
+      await cook.getByRole('button', { name: 'Save cooking note' }).click()
+      await expect(cook.getByRole('status').filter({ hasText: 'Saved to Personal Notes.' })).toBeVisible()
+      await capture('record-saved')
+      await cook.getByRole('button', { name: 'Back to recipe' }).click()
+      await captureReading('reading-after-record')
+      await page.getByRole('button', { name: 'Personal notes', exact: true }).click()
+      await page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'))
+      await settleJournalLayout(page)
+      await captureReading('reading-personal-notes')
+      await page.getByRole('button', { name: 'Recipe overview', exact: true }).click()
+      await page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'))
+      await settleJournalLayout(page)
+      await page.getByRole('button', { name: 'Revise with Mori' }).click()
+      const revision = page.getByRole('dialog', { name: 'Make a version for next time' })
+      await capture('revision-note-choice')
+      await revision.getByRole('radio').first().check()
+      await revision.getByRole('button', { name: 'Ask Mori for a revision' }).click()
+      await expect(revision.getByRole('alert')).toBeVisible()
+      await capture('revision-unavailable')
+      await revision.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await page.getByRole('button', { name: 'Linked recipes', exact: true }).click()
+      const linked = page.getByRole('dialog', { name: 'Linked recipes' })
+      await expect(linked.getByText('This recipe has no saved links to earlier versions.')).toBeVisible()
+      await capture('links-empty')
+      await linked.getByRole('button', { name: 'Done' }).click()
+      links = 'error'
+      await page.goto(`${origin}app/recipes/${current.id}`)
+      await page.getByRole('button', { name: 'Linked recipes', exact: true }).click()
+      await expect(linked.getByRole('alert')).toBeVisible()
+      const retry = linked.getByRole('button', { name: 'Try again' })
+      assert.ok((await retry.boundingBox()).height >= 44, 'Linked recipe retry needs the shared control target size')
+      await capture('links-error')
+      links = 'populated'
+      await linked.getByRole('button', { name: 'Try again' }).click()
+      await expect(linked.getByRole('link', { name: 'Based on ' + secondRecipe.title })).toBeVisible()
+      await capture('links-populated')
+      await linked.getByRole('button', { name: 'Done' }).click()
+      await page.getByRole('button', { name: 'Delete recipe', exact: true }).click()
+      const deletion = page.getByRole('alertdialog')
+      await capture('delete-confirmation')
+      await deletion.getByRole('button', { name: 'Delete recipe', exact: true }).click()
+      await expect(deletion.getByRole('alert')).toBeVisible()
+      await capture('delete-error')
+      await deletion.getByRole('button', { name: 'Cancel' }).click()
+      await expect(page.getByRole('button', { name: 'Delete recipe', exact: true })).toBeFocused()
+      assert.deepEqual(app.pageErrors, [])
+      await app.context.close()
+    }
+    process.stdout.write(`Desktop cooking, revision, lineage and delete overlays passed. Screenshots: ${outputDir}\n`)
+  } else {
+  for (const [width, height] of [[1280, 720], [390, 844]]) {
+    const empty = await newJournalContext(width, { empty: true })
+    await empty.page.setViewportSize({ width, height })
+    await empty.page.goto(`${origin}app/recipes`)
+    await expect(empty.page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toBeVisible()
+    await expect(empty.page.locator('.recipe-grid > li')).toHaveCount(0)
+    const add = empty.page.getByRole('link', { name: 'Add your first recipe' })
+    await expect(add).toHaveAttribute('href', '/app/recipes/new')
+    await add.click({ timeout: 5000 })
+    await expect(empty.page).toHaveURL(`${origin}app/recipes/new`)
+    await expect(empty.page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
+    assert.deepEqual(empty.pageErrors, [])
+    await empty.context.close()
+  }
+  process.stdout.write('Empty journal to create route passed on short desktop and phone.\n')
+
   for (const width of [1440, 768, 375, 320]) {
     const app = await newJournalContext(width, { holdList: width === 1440 })
     const { context, page } = app
@@ -140,18 +281,25 @@ try {
     }
     await expect(page.getByRole('heading', { name: 'Saved recipes (4)' })).toBeVisible()
     await assertJournalSemantics(page, `${width}px dashboard`)
-    await expect(page.locator('.recipe-grid > li')).toHaveCount(width < 600 ? 1 : 2)
-    const firstCard = page.getByRole('link', { name: `Open recipe ${recipe.title}` })
-    await expect(firstCard).toBeVisible()
+    if (width < 1100) await expect(page.locator('.mm-journal-spread .mm-collection-body > .recipe-grid > li')).toHaveCount(width < 600 ? 1 : 2)
+    const firstRecipeLink = page.getByRole('link', { name: `Open recipe ${recipe.title}` })
+    const firstCard = page.locator('.mm-recipe-card-slot').filter({ has: firstRecipeLink })
+    await expect(firstRecipeLink).toBeVisible()
     await expect(firstCard.getByRole('img', { name: /no recipe photo is available/ })).toBeVisible()
     await expect(firstCard.getByText('Oct 13, 2026')).toBeVisible()
     await expect(firstCard.getByText('4 / 5')).toBeVisible()
+    if (width >= 1100) {
+      await expect(page.getByRole('heading', { name: 'My recipes', exact: true, level: 1 })).toBeVisible()
+      await expect(page.locator('.mm-journal-flyleaf .mm-bookplate')).toBeVisible()
+      await expect(page.locator('.mm-journal-flyleaf [data-recipe-id]')).toHaveCount(0)
+      await expect(firstCard.getByText(/Toast the garlic gently/)).toBeVisible()
+    }
     assert.equal(await firstCard.locator('img').count(), 0)
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Dashboard overflow at ${width}px`)
     await page.screenshot({ path: path.join(outputDir, `${width}-dashboard.png`), fullPage: true })
 
     app.failNextLists(3)
-    await page.getByRole('button', { name: 'Refresh recipes' }).click()
+    await page.getByRole('button', { name: 'Refresh recipes' }).first().click()
     await expect(page.getByRole('alert')).toContainText('Could not load your recipes')
     await expect(firstCard).toBeVisible()
     await expect(page.getByRole('status').filter({ hasText: 'Showing your last loaded collection' })).toBeVisible()
@@ -162,7 +310,7 @@ try {
     await expect(page.getByRole('alert')).toHaveCount(0)
     await expect(firstCard).toBeVisible()
 
-    await firstCard.focus()
+    await firstRecipeLink.focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('heading', { name: recipe.title, level: 1 })).toBeVisible()
     await assertJournalSemantics(page, `${width}px recipe detail`)
@@ -187,8 +335,8 @@ try {
     await page.screenshot({ path: path.join(outputDir, `${width}-detail.png`), fullPage: true })
 
     await page.goBack()
-    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
-    await expect(firstCard).toBeFocused()
+    await expect(page.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i, level: 1 })).toBeVisible()
+    await expect(firstRecipeLink).toBeFocused()
     await page.goForward()
     await expect(page.getByRole('heading', { name: recipe.title, level: 1 })).toBeFocused()
     const shortUnits = await readAllRecipePages(page)
@@ -200,8 +348,8 @@ try {
     await page.goto(`${origin}app/recipes/${longRecipe.id}`)
     await expect(page.getByRole('heading', { name: longRecipe.title, level: 1 })).toBeVisible()
     const longUnits = await readAllRecipePages(page)
-    assert.equal(longUnits.filter((unit) => unit.id.startsWith('ingredient-')).length, 34)
-    assert.equal(longUnits.filter((unit) => unit.id.startsWith('instruction-')).length, 22)
+    assert.equal(longUnits.reduce((sum, unit) => sum + unit.ingredients, 0), 34)
+    assert.deepEqual([...new Set(longUnits.flatMap((unit) => unit.steps))], Array.from({ length: 22 }, (_, index) => index + 1))
     assert.ok(longUnits.some((unit) => unit.text.includes('long personal note from the margin')))
     assert.ok(longUnits.some((unit) => unit.text.includes('unbrokennote')))
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Long detail overflow at ${width}px`)
@@ -209,6 +357,23 @@ try {
     await page.screenshot({ path: path.join(outputDir, `${width}-long-detail.png`), fullPage: true })
 
     if (width === 1440) {
+      await page.setViewportSize({ width: 1280, height: 720 })
+      await page.goto(`${origin}app/recipes/${longRecipe.id}`)
+      const sections = page.getByRole('navigation', { name: 'Jump to recipe section' })
+      const methodJump = sections.getByRole('button', { name: 'In the kitchen' })
+      await expect(methodJump).toBeInViewport()
+      await methodJump.click()
+      await expect(page).toHaveURL(/read=instruction-0/)
+      await expect(methodJump).toHaveAttribute('aria-current', 'location')
+      await sections.getByRole('button', { name: 'Recipe overview' }).press('Enter')
+      await expect(page).toHaveURL(`${origin}app/recipes/${longRecipe.id}`)
+      await expect(page.getByRole('heading', { name: longRecipe.title, level: 1 })).toBeVisible()
+      await methodJump.click()
+      await page.getByRole('link', { name: 'Edit cooking steps' }).first().click()
+      await expect(page).toHaveURL(/edit\?section=method/)
+      await expect(page.getByRole('textbox', { name: 'Step 1 description' })).toBeFocused()
+      await page.setViewportSize({ width, height: 900 })
+
       await page.goto(`${origin}app/recipes`)
       // Half-size CSS viewport verifies reflow; the native zoom suite verifies
       // real browser zoom instead of scaling the document with CSS.
@@ -221,7 +386,7 @@ try {
 
       await settleJournalLayout(page)
       await page.emulateMedia({ reducedMotion: 'reduce' })
-      const reducedCardMotion = await page.locator('.mm-collection-entry').first().evaluate((element) => {
+      const reducedCardMotion = await firstCard.locator('.mm-collection-entry').evaluate((element) => {
         const style = globalThis.getComputedStyle(element)
         return { transition: style.transitionProperty, transform: style.transform }
       })
@@ -232,8 +397,11 @@ try {
       // Warm the route module: Vite's development assets cannot load offline.
       await page.evaluate(() => import('/src/pages/RecipeDetailPage.tsx'))
       // Offline data navigation pauses visibly and resumes on the same route.
+      const secondRecipeLink = page.getByRole('link', { name: `Open recipe ${secondRecipe.title}` })
+      if (!await secondRecipeLink.isVisible()) await page.getByRole('link', { name: 'Next page' }).click()
+      await expect(secondRecipeLink).toBeVisible()
       await context.setOffline(true)
-      await page.getByRole('link', { name: `Open recipe ${secondRecipe.title}` }).click()
+      await secondRecipeLink.click()
       await expect(page.getByRole('status').filter({ hasText: 'offline' })).toBeVisible()
       await context.setOffline(false)
       await expect(page.getByRole('heading', { name: secondRecipe.title, level: 1 })).toBeVisible()
@@ -282,19 +450,7 @@ try {
   assert.deepEqual(failed.pageErrors, [])
   await failed.context.close()
   process.stdout.write('FE-13 initial-list failure and cached-refresh recovery passed.\n')
-
-  const empty = await newJournalContext(390, { empty: true })
-  await empty.page.goto(`${origin}app/recipes`)
-  await expect(empty.page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toBeVisible()
-  await expect(empty.page.locator('.recipe-grid > li')).toHaveCount(0)
-  const add = empty.page.getByRole('link', { name: 'Add your first recipe' })
-  await expect(add).toHaveAttribute('href', '/app/recipes/new')
-  await add.click()
-  await expect(empty.page).toHaveURL(`${origin}app/recipes/new`)
-  await expect(empty.page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
-  assert.deepEqual(empty.pageErrors, [])
-  await empty.context.close()
-  process.stdout.write(`Empty journal to create route passed. Screenshots: ${outputDir}\n`)
+  }
 } finally {
   await browser?.close()
   await server.close()

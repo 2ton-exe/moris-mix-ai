@@ -17,7 +17,8 @@ import { MAX_PARENT_RECIPE_IDS } from "./schemas.ts";
  *
  * The token is stateless by design: within its TTL the same user can replay it
  * with the same allowed parent set. It cannot be replayed for a different user,
- * a different parent set, or after expiry.
+ * a different parent set, or after expiry. Renewal rechecks current ownership
+ * and issues a new token; it never makes an expired token valid for saving.
  */
 
 export const CANDIDATE_TOKEN_VERSION = "v1" as const;
@@ -114,7 +115,8 @@ export type CandidateTokenErrorReason =
 
 export type CandidateTokenVerifyResult =
   | { ok: true; claims: CandidateTokenClaims }
-  | { ok: false; reason: CandidateTokenErrorReason };
+  | { ok: false; reason: "expired"; claims: CandidateTokenClaims }
+  | { ok: false; reason: Exclude<CandidateTokenErrorReason, "expired"> };
 
 type SignCandidateTokenInput = {
   userId: string;
@@ -267,14 +269,14 @@ export async function verifyCandidateToken(
   const claims = parsed.data;
 
   const nowSeconds = epochSeconds(options.now ?? new Date());
-  if (claims.exp <= nowSeconds) {
-    return { ok: false, reason: "expired" };
-  }
   if (claims.iat > nowSeconds + CLOCK_SKEW_SECONDS) {
     return { ok: false, reason: "not_yet_valid" };
   }
   if (claims.sub !== options.userId) {
     return { ok: false, reason: "wrong_user" };
+  }
+  if (claims.exp <= nowSeconds) {
+    return { ok: false, reason: "expired", claims };
   }
 
   return { ok: true, claims };

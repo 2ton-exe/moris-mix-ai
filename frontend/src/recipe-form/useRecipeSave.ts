@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { HttpError } from '../api/http'
 import { useAuth } from '../auth/context'
@@ -6,12 +6,17 @@ import { recipeKeys } from '../recipes/queryOptions'
 import type { RecipeDraft } from './draft'
 import { recipeFormApi } from './api'
 import { confirmedSave } from './submission'
-import type { SaveRecipeDraft } from './submission'
+import type { RecipeEditorRecord, SaveRecipeDraft } from './submission'
 
-export function useRecipeSave(save?: SaveRecipeDraft, expectedId?: string) {
+export function useRecipeSave(save?: SaveRecipeDraft, expectedId?: string, record?: RecipeEditorRecord) {
   const { session, user, isAuthenticated, isLoading } = useAuth()
   const queryClient = useQueryClient()
   const createdId = useRef<string | undefined>(undefined)
+  const original = useRef<RecipeEditorRecord | undefined>(undefined)
+  useEffect(() => {
+    if (record && record.id === expectedId && record.userId === user?.id &&
+      (original.current?.id !== record.id || original.current.userId !== record.userId)) original.current = record
+  }, [record, expectedId, user?.id])
   return async (draft: RecipeDraft, { signal }: { signal: AbortSignal }) => {
     signal.throwIfAborted()
     if (!isAuthenticated || isLoading || !user || !session?.expires_at || session.user.id !== user.id || session.expires_at * 1000 <= Date.now()) {
@@ -19,9 +24,13 @@ export function useRecipeSave(save?: SaveRecipeDraft, expectedId?: string) {
     }
     const recipeId = expectedId ?? createdId.current
     const context = { userId: user.id, signal, ...(recipeId === undefined ? {} : { recipeId }) }
-    const result = save
-      ? await save(draft, context)
-      : await recipeFormApi.save(draft, context, recipeId)
+    let result
+    if (save) result = await save(draft, context)
+    else {
+      const confirmation = await recipeFormApi.save(draft, context, recipeId, original.current)
+      original.current = confirmation.record
+      result = { id: confirmation.id }
+    }
     if (!confirmedSave(result)) throw new Error('Missing persistence confirmation')
     if (recipeId !== undefined && result.id !== recipeId) throw new Error('Unexpected recipe confirmation')
     if (expectedId === undefined) createdId.current = result.id

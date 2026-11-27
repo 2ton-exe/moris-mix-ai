@@ -12,7 +12,7 @@ application data, Edge Function, schema, RLS, or deployment files are changed.
 | `/`, `/home`, `/about`, `/demo-recipe` | Existing public FE-01/FE-02 behavior; no auth initialization or auth requests required |
 | `/login`, `/signup` | Guest forms; signed-in visitors return to their intended `/app` destination |
 | `/verify-email` | Confirmation instructions and email-link resend form |
-| `/auth/callback` | Explicitly exchanges a signup authorization code with the SDK's browser-held PKCE verifier; shows confirmed-session status or recovery guidance |
+| `/auth/callback` | Exchanges a signup or password-reset code using the SDK's browser-held PKCE verifier, then shows the next step |
 | `/app/*` | Protected journal entry, ready for FE-04 recipe routes |
 
 `/app` is a frontend landing route introduced here, not a backend endpoint or a
@@ -89,11 +89,12 @@ authoritative for stronger project password policy.
 ## Ramos: required Supabase configuration and live verification
 
 The browser chooses `window.location.origin + '/auth/callback'` as the
-`emailRedirectTo` for signup and resend. No production origin is hardcoded.
+`emailRedirectTo` for signup and resend, and as `redirectTo` for password reset.
+No production origin is hardcoded.
 `frontend/src/auth/client.ts` implements the **PKCE** browser callback contract
 from Issue #122 with `flowType: 'pkce'` and `detectSessionInUrl: false`.
-The standard signup confirmation link returns an authorization `code` query
-parameter. After SDK initialization, `getVerificationCallbackResult()` explicitly
+The standard signup and password reset links return an authorization `code` query
+parameter. After SDK initialization, `getAuthCallbackResult()` explicitly
 calls `exchangeCodeForSession(code)` only on `/auth/callback`; the SDK supplies
 the browser-held PKCE verifier. Open the confirmation link in the same browser
 that started signup so that verifier is available. No custom email template is
@@ -121,6 +122,13 @@ by FE-03. Callback processing has an independent 15-second deadline. A timed-out
 exchange is aborted, and a late response cannot persist a session or turn its
 feedback into verification success; login or a fresh email link remains the
 recovery path.
+
+From `/login`, **Forgot your password?** opens the reset request form. The reset
+link must be opened in the browser that requested it. A successful exchange
+with the SDK's recovery verifier enables password update for the returned
+session. If that session changes before the update, the cook must request a new
+link. The callback shares the existing redirect allowlist entry. Verify hosted
+email delivery separately from the isolated browser fixture.
 
 Configure Supabase Auth's Site URL for the approved frontend deployment and add
 exact allowed redirect URLs for each approved environment, for example

@@ -11,7 +11,7 @@ import { recipeFormFixture } from './testing/fixtures'
 
 afterEach(() => vi.restoreAllMocks())
 const editable = { ...recipeFormFixture, notes: '' }
-const fill = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
+const fill = (label: string | RegExp, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
 const click = (name: string) => fireEvent.click(screen.getByRole('button', { name }))
 function moveIngredient(position: number, destination: number) {
   const dialog = document.querySelector('dialog')
@@ -37,8 +37,8 @@ it('renders an empty create form with accessible labels and optional journal fie
   render(<RecipeForm mode="create" />)
   expect((screen.getByLabelText('Recipe title') as HTMLInputElement).value).toBe('')
   expect(screen.getByText(/No ingredients yet/)).toBeTruthy()
-  expect((screen.getByLabelText('Rating') as HTMLSelectElement).value).toBe('')
-  expect(screen.getByLabelText('Cooked date').getAttribute('type')).toBe('date')
+  expect((screen.getByLabelText(/^Rating(?: \(optional\))?$/) as HTMLSelectElement).value).toBe('')
+  expect(screen.getByLabelText(/^Cooked date(?: \(optional\))?$/).getAttribute('type')).toBe('date')
   expect(screen.getByText(/Local draft only/)).toBeTruthy()
   nextPages()
   expect(screen.getByText(/No cooking steps yet/)).toBeTruthy()
@@ -49,9 +49,9 @@ it('populates edit mode including multiline notes, rating, quantities and calend
   expect((screen.getByLabelText('Recipe title') as HTMLInputElement).value).toBe(recipeFormFixture.title)
   expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('2')
   expect((screen.getByLabelText('Ingredient 2 quantity') as HTMLInputElement).value).toBe('')
-  expect((screen.getByLabelText('Rating') as HTMLSelectElement).value).toBe('4')
-  expect((screen.getByLabelText('Cooked date') as HTMLInputElement).value).toBe('2026-10-19')
-  expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe(recipeFormFixture.notes)
+  expect((screen.getByLabelText(/^Rating(?: \(optional\))?$/) as HTMLSelectElement).value).toBe('4')
+  expect((screen.getByLabelText(/^Cooked date(?: \(optional\))?$/) as HTMLInputElement).value).toBe('2026-10-19')
+  expect((screen.getByLabelText(/^Notes(?: \(optional\))?$/) as HTMLTextAreaElement).value).toBe(recipeFormFixture.notes)
   nextPages()
   expect((screen.getByLabelText('Step 1 description') as HTMLTextAreaElement).value).toBe(recipeFormFixture.instructions[0].text)
 })
@@ -69,7 +69,7 @@ it('labels the editable unit suggestions and places amount guidance directly bel
 
 it('defaults missing optional notes to an empty editor', () => {
   render(<RecipeForm mode="edit" initialValues={{ ...editable, notes: undefined }} />)
-  expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('')
+  expect((screen.getByLabelText(/^Notes(?: \(optional\))?$/) as HTMLTextAreaElement).value).toBe('')
 })
 
 it('focuses the added row and returns focus to Add when the last row is removed', async () => {
@@ -192,6 +192,8 @@ it('turns to the first invalid leaf and announces errors on additional pages', (
   click('Save changes')
   const first = screen.getByLabelText('Ingredient 1 quantity')
   expect(first.getAttribute('aria-invalid')).toBe('true')
+  expect(screen.getByRole('alert').textContent).toContain('Ingredient 1 quantity: Enter a positive number, or leave the quantity blank.')
+  expect(screen.getByRole('alert').textContent).toContain('Ingredient 3 quantity: Enter a positive number, or leave the quantity blank.')
   expect(document.activeElement).toBe(first)
   const otherPage = screen.getByRole('button', { name: /another recipe page with errors/i })
   expect(otherPage.textContent).toContain('1 other page has errors')
@@ -223,6 +225,7 @@ it('validates the required trimmed title, links its error, and focuses the field
   fill('Recipe title', '  ')
   click('Save recipe')
   expect(screen.getByText('Enter a recipe title.')).toBeTruthy()
+  expect(screen.getByRole('alert').textContent).toContain('Recipe title: Enter a recipe title.')
   const input = screen.getByLabelText('Recipe title')
   expect(input.getAttribute('aria-invalid')).toBe('true')
   expect(input.getAttribute('aria-describedby')).toContain('-error')
@@ -243,7 +246,7 @@ it('shows field-level quantity errors and preserves all entered values for corre
 it('preserves existing rating and supports updating to unrated', async () => {
   const submit = vi.fn().mockResolvedValue({ id: 'updated' })
   render(<RecipeForm mode="edit" initialValues={editable} onSubmit={submit} />)
-  fill('Rating', '')
+  fill(/^Rating(?: \(optional\))?$/, '')
   click('Save changes')
   await screen.findByText('Recipe saved.')
   expect(submit.mock.calls[0][0].star_rating).toBeNull()
@@ -253,8 +256,8 @@ it('preserves the selected calendar date and multiline supported notes', async (
   const submit = vi.fn().mockResolvedValue({ id: 'created' })
   render(<RecipeForm mode="create" onSubmit={submit} notesSupported />)
   fill('Recipe title', 'Rice')
-  fill('Cooked date', '2026-01-01')
-  fill('Notes', '<script>example</script>\nKeep this line.')
+  fill(/^Cooked date(?: \(optional\))?$/, '2026-01-01')
+  fill(/^Notes(?: \(optional\))?$/, '<script>example</script>\nKeep this line.')
   click('Save recipe')
   await screen.findByText('Recipe saved.')
   expect(submit.mock.calls[0][0]).toMatchObject({ cooked_at: '2026-01-01', notes: '<script>example</script>\nKeep this line.' })
@@ -265,11 +268,11 @@ it('does not silently discard unsupported notes or claim they were saved', async
   const submit = vi.fn().mockResolvedValue({ id: 'created' })
   render(<RecipeForm mode="create" onSubmit={submit} />)
   fill('Recipe title', 'Rice')
-  fill('Notes', 'Remember this.')
+  fill(/^Notes(?: \(optional\))?$/, 'Remember this.')
   click('Save recipe')
   expect((await screen.findByRole('alert')).textContent).toContain('Notes are not supported')
   expect(submit).not.toHaveBeenCalled()
-  expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('Remember this.')
+  expect((screen.getByLabelText(/^Notes(?: \(optional\))?$/) as HTMLTextAreaElement).value).toBe('Remember this.')
 })
 
 it.each(['create', 'edit'] as const)('preserves %s drafts on recoverable server errors and succeeds on retry', async (mode) => {
@@ -446,7 +449,7 @@ it('keeps failed saves and invalid submissions actionable without celebration', 
   fill('Recipe title', '')
   click('Save recipe')
   expect(submit).toHaveBeenCalledTimes(1)
-  expect(screen.getByText('Please check the highlighted fields.')).toBeTruthy()
+  expect(screen.getByText(/Please check Recipe title: Enter a recipe title/)).toBeTruthy()
   expect(screen.getByText('Your recipe needs a little attention. Check the form message before serving it up.')).toBeTruthy()
   expect(document.body.textContent).not.toContain('untrusted detail')
 })

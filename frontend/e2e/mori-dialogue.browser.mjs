@@ -47,7 +47,6 @@ const server = await createServer({
 })
 let browser
 let appOrigin
-const measurements = { contactSamples: 0, maxContactPx: 0, desktopContactSamples: 0, maxDesktopContactPx: 0, maxSpineDriftPx: 0, maxBindingPx: 0 }
 
 async function createJournal(width, { reducedMotion = false, empty = false, chef = false, collection = false, recordVideo = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, ...(recordVideo ? { recordVideo: { dir: path.join(outputDir, 'videos'), size: { width, height: 900 } } } : {}), reducedMotion: reducedMotion ? 'reduce' : 'no-preference' })
@@ -61,7 +60,7 @@ async function createJournal(width, { reducedMotion = false, empty = false, chef
   let failCursor = false
   const cursorReady = new Promise((resolve) => { releaseCursor = resolve })
   const readingRecipe = { ...recipe, ingredients: Array.from({ length: 60 }, (_, i) => ({ name: `Ingredient ${i + 1}`, quantity: 1, unit: 'cup', inferred: false })) }
-  const entries = Array.from({ length: 6 }, (_, i) => ({ id: `collection-${i}`, title: `Saved recipe ${i + 1}`, user_id: userId, star_rating: 4, cooked_at: recipe.cooked_at }))
+  const entries = Array.from({ length: width >= 1100 ? 12 : 6 }, (_, i) => ({ id: `collection-${i}`, title: `Saved recipe ${i + 1}`, user_id: userId, star_rating: 4, cooked_at: recipe.cooked_at }))
   page.on('pageerror', (error) => errors.push(error.message))
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url())
@@ -119,154 +118,6 @@ async function reachable(page, locator) {
     `Companion control must remain reachable: ${JSON.stringify(box)}`)
 }
 
-async function verifySpatialMoriTurn(layer, direction, screenshot) {
-  await expect(layer.locator('[data-mori-paper-actor] > :is(svg, img):visible')).toBeVisible()
-  const { width, samples } = await layer.evaluate((node) => {
-    const book = node.closest('.mm-journal-book')
-    const actor = node.querySelector('[data-mori-paper-actor]')
-    const foot = actor.querySelector('[data-mori-foot]')
-    const corner = node.querySelector('[data-page-corner]')
-    const live = book.querySelector(':scope > .mm-journal-spread')
-    const left = live.querySelector(':scope > .mm-journal-flyleaf').getBoundingClientRect()
-    const right = live.querySelector(':scope > .mm-journal-page').getBoundingClientRect()
-    const ringElements = [...book.querySelectorAll('.mm-journal-ring')]
-    const rings = ringElements.map((ring) => ring.getBoundingClientRect())
-    const bindingAlignment = (flipped) => {
-      const ring = rings[0]
-      const surface = node.querySelector(flipped ? '.mm-turn-face--back' : '.mm-turn-face--front')
-      const hole = [...surface.querySelectorAll('.mm-journal-hole')].map((element) => element.getBoundingClientRect()).find((box) => box.width > 0)
-      const rightEndpoint = flipped ? node.dataset.direction === 'backward' : node.dataset.direction === 'forward'
-      return hole ? Math.hypot(hole.x + hole.width / 2 - (rightEndpoint ? ring.right : ring.left), hole.y + hole.height / 2 - (ring.y + ring.height / 2)) : Infinity
-    }
-    const contains = (rect, x, y) => x >= rect.left - 1 && x <= rect.right + 1 && y >= rect.top - 1 && y <= rect.bottom + 1
-    const samples = Array.from({ length: 200 }, (_, index) => {
-      const progress = index === 199 ? .999 : index / 200
-      node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
-      const { x, y } = foot.getBoundingClientRect()
-      const { x: cornerX, y: cornerY } = corner.getBoundingClientRect()
-      const gripping = actor.hasAttribute('data-mori-gripping')
-      const ring = ringElements[0].getBoundingClientRect()
-      const grip = actor.querySelector('[data-mori-hand]')
-      const point = gripping ? new globalThis.DOMPoint(grip.cx.baseVal.value, grip.cy.baseVal.value).matrixTransform(grip.getScreenCTM()) : null
-      const sprite = actor.querySelector('img')
-      return {
-        progress, motion: actor.dataset.moriMotion, facing: actor.dataset.moriFacing, x, y, cornerX, cornerY, gripping,
-        sprite: sprite?.getAttribute('src'),
-        spriteFootY: sprite ? sprite.getBoundingClientRect().top + sprite.getBoundingClientRect().height * 230.6 / 240 : null,
-        travel: Number(node.dataset.travel),
-        crease: Number(globalThis.getComputedStyle(node.querySelector('.mm-turn-crease')).opacity),
-        spineDrift: Math.max(Math.abs(ring.x - rings[0].x), Math.abs(ring.y - rings[0].y)),
-        bindingAlignment: index === 0 || index === 199 ? bindingAlignment(index === 199) : null,
-        separation: point && Math.hypot(point.x - cornerX, point.y - cornerY),
-        step: actor.querySelector('[data-mori-pull-foot]')?.getAttribute('transform'),
-        paper: contains(left, x, y) ? 'left' : contains(right, x, y) ? 'right' : null,
-        inGutter: x >= left.right && x <= right.left && y >= left.top && y <= left.bottom,
-        onRing: rings.some((ring) => contains(ring, x, y)),
-      }
-    })
-    return { width: globalThis.innerWidth, samples }
-  })
-
-  const label = `${width}px ${direction}`
-  const motion = samples.filter((sample, index) => sample.motion !== samples[index - 1]?.motion).map((sample) => sample.motion)
-  assert.deepEqual(motion, ['approach', 'align', 'grab', 'turn', 'release', 'recover'], `${label}: takes one approach-to-recovery sequence`)
-  const initial = samples[0]
-  const alignment = samples.find((sample) => sample.motion === 'align')
-  const recovery = samples.findLast((sample) => sample.motion === 'recover')
-  assert.equal(alignment.paper, direction === 'forward' ? 'right' : 'left', `${label}: approaches the outgoing leaf`)
-  assert.ok(Math.hypot(alignment.x - initial.x, alignment.y - initial.y) > 12, `${label}: feet move to reach the paper`)
-  assert.equal(alignment.facing, direction === 'forward' ? 'E' : 'W', `${label}: faces the outgoing edge`)
-  assert.ok(recovery.paper && Math.hypot(recovery.x - initial.x, recovery.y - initial.y) <= 1, `${label}: returns to his resting point on paper`)
-
-  const directions = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE']
-  const pulledPaper = []
-  const displayedWalkFrames = new Set()
-  for (const [index, sample] of samples.entries()) {
-    assert.ok((sample.paper || sample.inGutter) && !sample.onRing, `${label}: foot leaves the book or crosses a ring ${JSON.stringify(sample)}`)
-    if (['approach', 'align', 'grab'].includes(sample.motion)) {
-      assert.equal(sample.travel, 0, `${label}: paper waits for contact`)
-      assert.ok(Math.hypot(sample.cornerX - initial.cornerX, sample.cornerY - initial.cornerY) <= .5, `${label}: outgoing paper remains stationary`)
-    }
-    measurements.maxSpineDriftPx = Math.max(measurements.maxSpineDriftPx, sample.spineDrift)
-    assert.ok(sample.spineDrift <= 1, `${label}: spine stays fixed`)
-    if (sample.bindingAlignment !== null) {
-      measurements.maxBindingPx = Math.max(measurements.maxBindingPx, sample.bindingAlignment)
-      assert.ok(sample.bindingAlignment <= 1, `${label}: page holes align with the loop endpoints`)
-    }
-    if (sample.gripping) {
-      measurements.contactSamples++
-      measurements.maxContactPx = Math.max(measurements.maxContactPx, sample.separation)
-      measurements.desktopContactSamples++
-      measurements.maxDesktopContactPx = Math.max(measurements.maxDesktopContactPx, sample.separation)
-      assert.ok(sample.separation <= 2, `${label}: mitt separates from paper by ${sample.separation}px`)
-      assert.ok(sample.crease > .2 && sample.crease < .9, `${label}: subtle crease appears while gripping`)
-      if (sample.travel > 0) pulledPaper.push(sample)
-    }
-    if (sample.sprite && ['approach', 'recover'].includes(sample.motion)) {
-      assert.ok(Math.abs(sample.spriteFootY - sample.y) <= 1, `${label}: sprite sole is registered to the paper`)
-      if (sample.sprite.includes(`/${sample.facing}/walk-`)) displayedWalkFrames.add(sample.sprite)
-    }
-    if (sample.motion === 'recover') assert.equal(sample.gripping, false, `${label}: releases the paper before walking`)
-
-    const previous = samples[index - 1]
-    if (!previous || !['approach', 'recover'].includes(sample.motion) || previous.motion !== sample.motion || previous.facing !== sample.facing) continue
-    const dx = sample.x - previous.x
-    const dy = sample.y - previous.y
-    if (Math.hypot(dx, dy) < 1) continue
-    const sector = Math.atan2(dy, dx) / (Math.PI / 4)
-    if (Math.abs(sector - Math.round(sector)) > .48) continue
-    assert.equal(sample.facing, directions[(Math.round(sector) + 8) % 8], `${label}: faces in the direction of travel`)
-  }
-  assert.ok(displayedWalkFrames.size >= 4, `${label}: renders the approved walk frames`)
-  assert.ok(pulledPaper.length > 5, `${label}: Mori keeps contact as the paper starts to move`)
-  const oppositeSide = direction === 'forward' ? 'left' : 'right'
-  assert.ok(pulledPaper.some((sample) => sample.travel > .8 && sample.paper === oppositeSide),
-    `${label}: Mori follows the paper to the other side before releasing it`)
-  assert.ok(samples.filter((sample) => sample.travel >= .25 && sample.travel <= .85).every((sample) => sample.gripping),
-    `${label}: Mori holds the same edge throughout the turn across the spine`)
-  assert.ok(new Set(pulledPaper.map(({ step }) => step).filter(Boolean)).size > 1,
-    `${label}: Mori takes steps while pulling the paper`)
-
-  for (const stage of motion) {
-    const frames = samples.filter((sample) => sample.motion === stage)
-    const sample = stage === 'turn' ? frames.find((frame) => frame.travel >= .8) : frames[Math.floor(frames.length / 2)]
-    await layer.evaluate((node, progress) => {
-      node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
-      return new Promise((resolve) => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve)))
-    }, sample.progress)
-    await screenshot(stage)
-  }
-  await layer.evaluate((node, progress) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress })), samples.at(-1).progress)
-}
-
-async function verifyCompactMoriTurn({ page, character, layer, direction, width, screenshot }) {
-  const spine = await page.locator('.mm-journal-ring').first().boundingBox()
-  await expect(character).toHaveAttribute('data-turn-direction', direction)
-  const points = [...new Set([.1, .22, .32, .54, .68, .85, .95, ...Array.from({ length: 29 }, (_, i) => Number((.26 + i * .02).toFixed(2)))])].sort((a, b) => a - b)
-  for (const progress of points) {
-    const contact = await layer.evaluate((node, progress) => {
-      node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
-      const hand = globalThis.document.querySelector('[data-mori-hand]')
-      const point = new globalThis.DOMPoint(Number(hand.getAttribute('cx')), Number(hand.getAttribute('cy'))).matrixTransform(hand.getScreenCTM())
-      const corner = node.querySelector('[data-page-corner]').getBoundingClientRect()
-      const ring = globalThis.document.querySelector('.mm-journal-ring').getBoundingClientRect()
-      const surface = node.querySelector(progress < .54 ? '.mm-turn-face--front' : '.mm-turn-face--back')
-      const hole = [...surface.querySelectorAll('.mm-journal-hole')].map((element) => element.getBoundingClientRect()).find((box) => box.width > 0)
-      const rightEndpoint = node.dataset.layout === 'single' || (progress < .54 ? node.dataset.direction === 'forward' : node.dataset.direction === 'backward')
-      const alignment = hole ? Math.hypot(hole.x + hole.width / 2 - (rightEndpoint ? ring.right : ring.left), hole.y + hole.height / 2 - (ring.y + ring.height / 2)) : null
-      return { alignment, connected: node.isConnected, phase: node.dataset.phase, progress: node.dataset.progress, leaf: node.querySelector('.mm-turn-leaf').getBoundingClientRect().toJSON(), distance: Math.hypot(point.x - corner.x, point.y - corner.y), hand: { x: point.x, y: point.y }, corner: { x: corner.x, y: corner.y }, ring: { x: ring.x, y: ring.y } }
-    }, progress)
-    if (progress >= .26 && progress <= .82) { measurements.contactSamples++; measurements.maxContactPx = Math.max(measurements.maxContactPx, contact.distance) }
-    measurements.maxSpineDriftPx = Math.max(measurements.maxSpineDriftPx, Math.abs(contact.ring.x - spine.x), Math.abs(contact.ring.y - spine.y))
-    if ([.1, .95].includes(progress)) measurements.maxBindingPx = Math.max(measurements.maxBindingPx, contact.alignment ?? Infinity)
-    if (progress >= .26 && progress <= .82) assert.ok(contact.distance <= 2, `${width}px ${direction} p=${progress}: detached mitt ${JSON.stringify(contact)}`)
-    if ([.1, .95].includes(progress)) assert.ok(contact.alignment !== null && contact.alignment <= 1, `Hole and loop endpoint must align: ${JSON.stringify(contact)}`)
-    if (progress >= .26 && progress <= .82 && contact.corner.x >= 0 && contact.corner.x <= width && contact.corner.y >= 0) assert.ok(contact.hand.x >= -2 && contact.hand.x <= width + 2 && contact.hand.y >= -2, 'Attached mitt stays within the viewport when the page corner is visible')
-    assert.ok(Math.abs(contact.ring.x - spine.x) <= 1 && Math.abs(contact.ring.y - spine.y) <= 1, 'Spine stays fixed')
-    if ([.1, .22, .32, .54, .68, .85, .95].includes(progress)) await screenshot(progress)
-  }
-}
-
 async function verifyMoriPageTurn(page, character, direction) {
   const layer = page.locator('[data-journal-page-turn]')
   await expect(layer).toHaveAttribute('data-phase', 'animating')
@@ -276,10 +127,9 @@ async function verifyMoriPageTurn(page, character, direction) {
   const width = page.viewportSize().width
   const journey = new URL(page.url()).pathname.split('/').at(-1)
   const screenshot = (stage) => page.screenshot({ path: path.join(outputDir, `${journey}-${width}-${direction}-${stage}.png`) })
-  if (spatial) {
-    await expect(character.getByRole('button', { name: 'Talk to Mori' })).toHaveAttribute('tabindex', '-1')
-    await verifySpatialMoriTurn(layer, direction, screenshot)
-  } else await verifyCompactMoriTurn({ page, character, layer, direction, width, screenshot })
+  await expect(layer.locator('[data-mori-paper-actor]')).toHaveCount(0)
+  await layer.evaluate((node) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: .999 })))
+  await screenshot('independent-turn')
   await expect(page).toHaveURL(before)
   const destinationPositions = await layer.evaluate((node) => {
     const selectors = node.dataset.layout === 'single' ? ['.mm-turn-face--back'] : node.dataset.direction === 'forward' ? ['.mm-turn-face--back', '.mm-turn-under--right'] : ['.mm-turn-face--back', '.mm-turn-under--left']
@@ -290,6 +140,14 @@ async function verifyMoriPageTurn(page, character, direction) {
     })
   })
   assert.ok(destinationPositions.some((position) => position.key === 'footer:right'), 'Prepared paper must retain a visible pagination footer')
+  if (spatial) {
+    const reserved = await page.locator('.mm-journal-book > .mm-journal-spread .mm-journal-page').evaluate(page => ({
+      measured: Number.parseFloat(page.style.getPropertyValue('--mm-footer-height')),
+      current: page.querySelector('.mm-footer-actions').offsetHeight,
+    }))
+    assert.equal(reserved.measured, reserved.current, 'Paper snapshots must use the current footer reserve before the turn starts')
+  }
+
   await layer.evaluate((node) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
   await page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'))
   await expect(character).not.toHaveAttribute('data-turn-direction', direction)
@@ -300,9 +158,12 @@ async function verifyMoriPageTurn(page, character, direction) {
     const box = target?.getBoundingClientRect()
     return { key: position.key, delta: box ? Math.hypot(box.x - position.x, box.y - position.y) : Infinity }
   }), destinationPositions)
-  const footer = await page.locator('.mm-journal-book > .mm-journal-spread .mm-pagination-number').boundingBox()
+  const footerControl = page.locator('.mm-journal-book > .mm-journal-spread .mm-pagination-number')
+  if (!spatial) await footerControl.scrollIntoViewIfNeeded()
+  const footer = await footerControl.boundingBox()
   assert.ok(footer && footer.y >= 0 && footer.y + footer.height <= page.viewportSize().height, 'Settled footer stays inside the visible paper')
-  assert.ok(handoff.every((position) => position.delta <= 2), `Destination moves at handoff: ${JSON.stringify(handoff)}`)
+  // Short single pages scroll at handoff, so their footer is checked for reachability above.
+  if (spatial || page.viewportSize().height >= 500) assert.ok(handoff.every((position) => position.delta <= 2), `Destination moves at handoff: ${JSON.stringify(handoff)}`)
 }
 
 async function recordShortcutTravel(page, name, { moveTab = false } = {}) {
@@ -358,7 +219,7 @@ async function assertShortcutTravel(recording, tabName, { checkSteps = false, ch
     assert.ok(walking.length > 1, `Mori walks to ${tabName}`)
     assert.ok(arrival.some((sample) => sample.target === tabName && sample.handGap !== null && sample.handGap <= 3),
       `Mori reaches the real ${tabName} tab: ${JSON.stringify(arrival)}`)
-    assert.ok(arrival.every((sample) => sample.stillOnSource), `Navigation waits for Mori to arrive at ${tabName}`)
+    assert.ok(arrival.every((sample) => !sample.stillOnSource), `Navigation proceeds independently of Mori arriving at ${tabName}`)
     assert.deepEqual(linksClicked, [], 'The real notebook tab receives no synthetic click')
     if (checkMovedTab) assert.equal(shifted, true, 'The destination changes position while Mori travels')
     if (checkCurvature) {
@@ -399,12 +260,36 @@ try {
 
     const character = page.getByRole('group', { name: 'Mori companion' })
     const desktop = width === 1440
+    const resize = page.getByRole('button', { name: 'Resize Mori chat' })
+    if (desktop) {
+      const initial = await chat.boundingBox()
+      const grip = await resize.boundingBox()
+      const growsLeft = grip.x < initial.x + initial.width / 2
+      await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(grip.x + grip.width / 2 + (growsLeft ? 60 : -60), grip.y + grip.height / 2 + 64, { steps: 4 })
+      await page.mouse.up()
+      const smaller = await chat.boundingBox()
+      assert.ok(smaller.width < initial.width && smaller.height <= 480, 'Dragging changes width while retaining a content-aware height cap')
+      await resize.focus()
+      await resize.press(growsLeft ? 'ArrowLeft' : 'ArrowRight')
+      assert.ok((await chat.boundingBox()).width > smaller.width, 'The keyboard can widen the chat')
+      const beforeClick = await chat.boundingBox()
+      await resize.click()
+      assert.equal((await chat.boundingBox()).width, beforeClick.width, 'Clicking a resize grip must not switch size presets')
+      await resize.press('Enter')
+      const restored = await chat.boundingBox()
+      assert.equal(restored.width, initial.width, 'Activating the grip again restores the standard width')
+      assert.ok(restored.height <= 560, 'Reset restores the default dialogue height')
+    } else {
+      await expect(resize).toHaveCount(0)
+    }
     const editorTravel = desktop ? await recordShortcutTravel(page, 'New recipe', { moveTab: true }) : null
     await editor.focus()
     await page.keyboard.press('Enter')
     if (editorTravel) {
       await expect(character).toHaveAttribute('data-navigation-stage', /travel|arrival/)
-      await expect(page).toHaveURL(`${origin}app/recipes?view=index`)
+      await expect(page).toHaveURL(`${origin}app/recipes/new`)
       await expect(editor).toBeDisabled()
       await chat.getByRole('button', { name: 'Open recipes' }).evaluate((button) => button.click())
       await expect(chat.getByRole('log')).not.toContainText('Opening your recipe collection.')
@@ -447,7 +332,7 @@ try {
     await expect(page).toHaveURL(`${origin}app/recipes`)
     await expect(character).not.toHaveAttribute('data-navigation-stage')
     await expect(chat).toBeVisible()
-    const collectionHeading = page.getByRole('heading', { name: 'Your cooking journal', exact: true })
+    const collectionHeading = page.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i, exact: true, level: 1 })
     await expect(collectionHeading).toBeFocused()
     await collection.press('Enter')
     await expect(collectionHeading).toBeFocused()
@@ -506,11 +391,12 @@ try {
     const panel = page.getByRole('region', { name: 'Mori', exact: true })
     await expect(panel).toBeVisible()
     await expect(page.locator('.mori-pet-bubble')).toHaveCSS('opacity', '1')
-    await expect(panel.getByRole('heading', { name: 'Mori', exact: true })).toBeFocused()
+    await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeFocused()
     await expect(panel.getByRole('button', { name: 'Close Mori', exact: true })).toBeVisible()
     await expect(trigger.locator('svg')).toHaveAttribute('data-mood', 'talk')
     await reachable(page, panel)
     await assertJournalSemantics(page, `${width}px open companion`)
+    await expect(panel.locator('.mori-chat-conversation')).toBeVisible()
     const chatGeometry = await panel.evaluate((element) => {
       const panel = element.getBoundingClientRect()
       const composer = element.querySelector('.mori-chat-composer').getBoundingClientRect()
@@ -521,7 +407,7 @@ try {
       await panel.getByRole('textbox', { name: 'Message Mori' }).scrollIntoViewIfNeeded()
       await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport()
     }
-    if (width === 1440) assert.equal(chatGeometry.height, 560, 'Desktop chat must use its full available height')
+    if (width === 1440) assert.ok(chatGeometry.height <= 560, 'Desktop chat should leave room for the journal')
     if (width > 600) assert.equal(chatGeometry.panelScrolls, false, 'A roomy desktop panel keeps the composer in place')
     if (width === 1440) {
       const shortcutsFit = await panel.locator('.mori-chat-shortcuts').evaluate((element) => {
@@ -574,6 +460,8 @@ try {
     const savedPosition = await character.boundingBox()
     assert.equal(apiRequests.length, requestsBefore, 'Companion interactions must not initiate API requests')
     await page.reload()
+    await expect(page.getByRole('heading', { name: 'Saved recipes (1)' })).toBeVisible()
+    await settleJournalLayout(page)
     await expect(trigger).toBeVisible()
     await expect.poll(async () => {
       const restoredPosition = await character.boundingBox()
@@ -585,7 +473,7 @@ try {
     await expect(preferencesPanel.getByRole('button', { name: 'Reset position' })).toHaveCount(0)
     await expect(preferencesPanel.getByRole('button', { name: 'Hide Mori' })).toHaveCount(0)
     await expect(panel).toBeVisible()
-    await expect(panel.getByRole('heading', { name: 'Mori', exact: true })).toBeFocused()
+    await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeFocused()
     await page.keyboard.press('Escape')
     await page.setViewportSize({ width: 320, height: 480 })
     await settleJournalLayout(page)
@@ -598,7 +486,7 @@ try {
     await page.goto(`${origin}app/recipes/new`)
     await expect(page.getByRole('heading', { name: 'New recipe', exact: true })).toBeVisible()
     await expect(trigger).toBeVisible()
-    await page.getByRole('button', { name: /^Next Pages?$/ }).click()
+    await page.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
     await verifyMoriPageTurn(page, character, 'forward')
     await page.getByRole('button', { name: /^Previous Pages?$/ }).click()
     await verifyMoriPageTurn(page, character, 'backward')
@@ -613,7 +501,7 @@ try {
     const chefTrigger = chefApp.page.getByRole('button', { name: 'Talk to Mori', exact: true })
     await chefTrigger.click()
     const chefPanel = chefApp.page.getByRole('region', { name: 'Mori', exact: true })
-    await expect(chefPanel.locator('.mori-chat-task')).toHaveText('How can I help?')
+    await expect(chefPanel.locator('.mori-chat-task')).toHaveText(width === 1440 ? 'What shall we cook with your pantry?' : 'How can I help?')
     await chefPanel.getByRole('button', { name: 'Open cooking notes' }).click()
     await expect(chefApp.page).toHaveURL(`${origin}app/quick-entry`)
     const notesInput = chefApp.page.getByRole('textbox', { name: 'Cooking notes' })
@@ -662,6 +550,7 @@ try {
   await quickApp.page.goto(`${origin}app/quick-entry`)
   await quickApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
   const quickPanel = quickApp.page.getByRole('region', { name: 'Mori', exact: true })
+  const emptyChatHeight = (await quickPanel.boundingBox()).height
   await quickPanel.getByText('Suggested prompts', { exact: true }).click()
   await quickPanel.getByRole('button', { name: 'See more', exact: true }).click()
   await quickPanel.getByRole('button', { name: 'Record a recipe', exact: true }).click()
@@ -669,15 +558,11 @@ try {
   await quickPanel.getByRole('button', { name: 'Send' }).click()
   await quickPanel.getByRole('status').filter({ hasText: 'Mori is working on your request.' }).waitFor()
   assert.equal(await quickPanel.getByRole('status').count(), 1, 'A pending chat request must have only one live status announcement')
-  const pendingFits = await quickPanel.evaluate(element => {
-    const bounds = element.getBoundingClientRect()
-    return [...element.querySelectorAll('.mori-chat-composer, .mori-chat-shortcuts, .mori-chat-pending, .mori-chat-hint')].every(child => {
-      const rect = child.getBoundingClientRect()
-      return rect.top >= bounds.top && rect.bottom <= bounds.bottom
-    })
-  })
-  assert.equal(pendingFits, true, 'Composer, navigation, Cancel and hint must fit while a request is pending')
-  assert.ok((await quickPanel.getByRole('log').boundingBox()).height >= 44, 'Pending requests must retain a readable transcript')
+  assert.ok((await quickPanel.boundingBox()).height > emptyChatHeight, 'Dialogue grows to fit the request status')
+  await expect(quickPanel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport({ ratio: 1 })
+  await expect(quickPanel.getByRole('button', { name: 'Send', exact: true })).toBeInViewport({ ratio: 1 })
+  await expect(quickPanel.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport({ ratio: 1 })
+  await expect(quickPanel.getByRole('article', { name: 'You' }).last()).toBeInViewport({ ratio: 1 })
   quickApp.releaseExtraction()
   const draftReview = quickPanel.getByRole('button', { name: 'Review draft' })
   await Promise.all([
@@ -753,17 +638,28 @@ try {
       const loading = app.page.locator('.mm-reading-skeleton')
       await loading.waitFor()
       await app.page.evaluate(() => globalThis.document.fonts.ready)
+      await settleJournalLayout(app.page)
       const identity = () => app.page.locator(width < 1100 ? '.mm-journal-page .mm-reading-identity' : '.mm-journal-flyleaf .mm-reading-identity').first()
-      const loadingArt = await identity().locator('.mm-recipe-artwork').boundingBox()
-      const loadingHeading = await identity().locator('.mm-recipe-detail__summary').boundingBox()
+      const identityGeometry = async () => {
+        let geometry
+        await expect.poll(async () => {
+          geometry = await identity().evaluate(element => {
+            const artwork = element.querySelector('.mm-recipe-artwork')
+            const summary = element.querySelector('.mm-recipe-detail__summary')
+            return artwork && summary ? { artwork: artwork.getBoundingClientRect().toJSON(), summary: summary.getBoundingClientRect().toJSON() } : null
+          })
+          return Boolean(geometry?.artwork.width && geometry.artwork.height && geometry.summary.width)
+        }).toBe(true)
+        return geometry
+      }
+      const { artwork: loadingArt, summary: loadingHeading } = await identityGeometry()
       const back = app.page.getByRole('link', { name: demo ? 'Back home' : 'Back to recipes', exact: false }).filter({ visible: true })
       await expect(back).toBeVisible()
       await app.page.screenshot({ path: path.join(outputDir, `${width}-${demo ? 'demo' : 'detail'}-loading.png`) })
       releaseRecipe()
       await expect(loading).toHaveCount(0)
       await settleReadingPages(app.page)
-      const loadedArt = await identity().locator('.mm-recipe-artwork').boundingBox()
-      const loadedHeading = await identity().locator('.mm-recipe-detail__summary').boundingBox()
+      const { artwork: loadedArt, summary: loadedHeading } = await identityGeometry()
       for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(loadingArt[key] - loadedArt[key]) <= 2, `Reading artwork ${key} shifts: ${loadingArt[key]} → ${loadedArt[key]}`)
       for (const key of ['x', 'y', 'width']) assert.ok(Math.abs(loadingHeading[key] - loadedHeading[key]) <= 2, `Reading summary ${key} shifts`)
       assert.deepEqual(app.errors, [])
@@ -923,15 +819,15 @@ try {
       await settleReadingPages(page)
       await page.evaluate(() => { globalThis.__moriSampleTurns = true })
       const layer = page.locator('[data-journal-page-turn]')
-      const actor = layer.locator('[data-mori-paper-actor] > :is(svg, img):visible')
+      const actor = layer.locator('[data-mori-paper-actor]')
       await page.getByRole('button', { name: 'Next Page', exact: true }).click()
-      await expect(actor).toBeVisible()
+      await expect(actor).toHaveCount(0)
       const turnId = await layer.getAttribute('data-turn-id')
       await page.locator('.mm-journal-spread .mm-button--page-turn').evaluateAll((buttons) => buttons.forEach((button) => button.click()))
       await expect(layer).toHaveAttribute('data-turn-id', turnId)
       await verifyMoriPageTurn(page, character, 'forward')
       await page.getByRole('button', { name: 'Previous Page', exact: true }).click()
-      await expect(actor).toBeVisible()
+      await expect(actor).toHaveCount(0)
       await page.locator('.mm-desk-brand').click()
       await expect(page).toHaveURL(`${origin}app/recipes`)
       await expect(layer).toHaveCount(0)
@@ -986,7 +882,7 @@ try {
     await expect(recording.page.getByRole('heading', { name: 'New recipe', exact: true })).toBeVisible()
     await recording.page.getByLabel('Recipe title').fill('Persistent cookbook draft')
     await recording.page.evaluate(() => { globalThis.__moriSampleTurns = false })
-    for (const name of [/^Next Pages?$/, /^Previous Pages?$/]) {
+    for (const name of [/^Next(?::| Pages?$)/, /^Previous Pages?$/]) {
       await recording.page.getByRole('button', { name }).click()
       await recording.page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'))
     }
@@ -1039,12 +935,12 @@ try {
   await reachable(page, panel)
   await page.screenshot({ path: path.join(outputDir, 'reduced-motion-reflow.png') })
   await page.goto(`${origin}app/recipes/new`)
-  await page.getByRole('button', { name: /^Next Pages?$/ }).click()
+  await page.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
   await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
   await expect(page.locator('.mori-pet-character')).not.toHaveAttribute('data-turn-direction', 'forward')
   assert.deepEqual(errors, [])
   await context.close()
-  await writeFile(path.join(outputDir, 'measurements.json'), JSON.stringify({ browser: process.env.MORI_BROWSER ?? 'chromium', ...measurements }, null, 2))
+  await writeFile(path.join(outputDir, 'measurements.json'), JSON.stringify({ browser: process.env.MORI_BROWSER ?? 'chromium', independentPageTurns: true }, null, 2))
   process.stdout.write(`Empty guidance and reduced motion passed. Screenshots: ${outputDir}\n`)
   }
 } finally {

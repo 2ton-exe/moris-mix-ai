@@ -16,6 +16,7 @@ import { initialDiscoveryCriteria } from './discoveryTypes'
 import type { RecipeDiscoveryPage, RecipeDiscoverySource } from './discoveryTypes'
 import type { RecipeSource } from './types'
 import { createRecipeSource } from './apiSource'
+import { RecipeIntegrationUnavailable } from './source'
 
 const rice = { id: 'rice', title: 'Garlic rice' }
 const salad = { id: 'salad', title: 'Lemon salad' }
@@ -63,8 +64,28 @@ it('labels search, scope, filter and sort controls and advertises no production-
   expect(screen.getByRole('combobox', { name: 'Search in' })).toBeTruthy()
   expect(screen.getByRole('combobox', { name: 'Test filter' })).toBeTruthy()
   expect(screen.getByRole('combobox', { name: 'Sort recipes' })).toBeTruthy()
+  expect(screen.getByText('Search recipe titles, ingredient names, or both.')).toBeTruthy()
   expect(source.list).not.toHaveBeenCalled()
   expect(page.mock.calls.filter(([request]) => !request.signal.aborted)).toHaveLength(1)
+})
+
+it('keeps unique recipe labels and adds date, entry, and notes for repeated titles', async () => {
+  page.mockResolvedValue({ recipes: [
+    { id: 'supper-one', title: 'Family supper', cooked_at: '2026-10-13', notes: 'Added extra basil.' },
+    { id: 'supper-two', title: 'Family supper', cooked_at: '2026-10-13', notes: 'Used the last of the tomatoes.' },
+    { id: 'unique-rice', title: 'Garlic rice' },
+  ], nextPage: null })
+  const index = render(tree())
+  const firstResult = await screen.findByRole('link', { name: 'Open recipe Family supper, cooked Oct 13, 2026, entry 1' })
+  const secondResult = screen.getByRole('link', { name: 'Open recipe Family supper, cooked Oct 13, 2026, entry 2' })
+  expect(firstResult.closest('li')?.textContent).toContain('Note: Added extra basil.')
+  expect(secondResult.closest('li')?.textContent).toContain('Note: Used the last of the tomatoes.')
+  expect(screen.getByRole('link', { name: 'Open recipe Garlic rice, entry 3' })).toBeTruthy()
+
+  index.unmount()
+  render(tree('cook-a', '/app/recipes?view=collection'))
+  expect(await screen.findByRole('link', { name: 'Open recipe Family supper, cooked Oct 13, 2026, entry 1' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Open recipe Family supper, cooked Oct 13, 2026, entry 2' })).toBeTruthy()
 })
 
 it('keeps focus in search when editing a restored index anchor', async () => {
@@ -75,6 +96,57 @@ it('keeps focus in search when editing a restored index anchor', async () => {
   fireEvent.change(search, { target: { value: 'garlic' } })
   await waitFor(() => expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ criteria: expect.objectContaining({ search: 'garlic' }) })))
   expect(document.activeElement).toBe(search)
+})
+
+it('moves focus to search when opening the index from the collection', async () => {
+  render(tree('cook-a', '/app/recipes?view=collection'))
+  fireEvent.click((await screen.findAllByRole('link', { name: 'Search saved recipes' }))[0])
+  const search = await screen.findByRole('searchbox', { name: 'Search recipes' })
+  await waitFor(() => expect(document.activeElement).toBe(search))
+  fireEvent.click(screen.getByRole('link', { name: 'Browse saved recipes' }))
+  const heading = await screen.findByRole('heading', { name: 'Your cooking journal' })
+  await waitFor(() => expect(document.activeElement).toBe(heading))
+})
+
+it('opens saved recipe search with / and keeps the current query and sort', async () => {
+  render(tree('cook-a', '/app/recipes?view=collection&q=garlic&sort=rating'))
+  await screen.findByRole('link', { name: 'Open recipe Garlic rice' })
+  const collection = screen.getByRole('region', { name: 'Recipe collection page 1' })
+  expect(collection.getAttribute('aria-keyshortcuts')).toBe('/')
+  fireEvent.keyDown(document.body, { key: '/' })
+  expect(screen.queryByRole('searchbox', { name: 'Search recipes' })).toBeNull()
+  collection.focus()
+  fireEvent.keyDown(collection, { key: '/' })
+  const search = await screen.findByRole('searchbox', { name: 'Search recipes' })
+  expect((search as HTMLInputElement).value).toBe('garlic')
+  expect((screen.getByRole('combobox', { name: 'Sort recipes' }) as HTMLSelectElement).value).toBe('rating')
+  await waitFor(() => expect(document.activeElement).toBe(search))
+  expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ criteria: expect.objectContaining({ search: 'garlic', sort: 'rating' }) }))
+})
+
+it('does not activate the collection search shortcut while a native dialog is open', async () => {
+  render(tree('cook-a', '/app/recipes?view=collection'))
+  await screen.findByRole('link', { name: 'Open recipe Garlic rice' })
+  const collection = screen.getByRole('region', { name: 'Recipe collection page 1' })
+  const dialog = document.createElement('dialog')
+  dialog.setAttribute('open', '')
+  document.body.append(dialog)
+  try {
+    collection.focus()
+    fireEvent.keyDown(collection, { key: '/' })
+    expect(screen.queryByRole('searchbox', { name: 'Search recipes' })).toBeNull()
+  } finally {
+    dialog.remove()
+  }
+})
+
+it('omits the shortcut when the discovery source cannot search', async () => {
+  source.discovery = { searchModes: [], sorts: ['newest'], filters: [], page }
+  render(tree('cook-a', '/app/recipes?view=collection'))
+  await screen.findByRole('link', { name: 'Open recipe Garlic rice' })
+  const collection = screen.getByRole('region', { name: 'Recipe collection page 1' })
+  expect(collection.getAttribute('aria-keyshortcuts')).toBeNull()
+  expect(screen.queryByText(/Focus the recipe list and press/)).toBeNull()
 })
 
 it('debounces search, hides stale cards immediately, aborts old requests and preserves pending input', async () => {
@@ -91,7 +163,7 @@ it('debounces search, hides stale cards immediately, aborts old requests and pre
   await act(async () => { await vi.advanceTimersByTimeAsync(200) })
   fireEvent.change(input, { target: { value: 'salad' } })
   expect(card()).toBeNull()
-  expect((screen.getByRole('button', { name: 'Refresh recipes' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getAllByRole('button', { name: 'Refresh recipes' })[0] as HTMLButtonElement).disabled).toBe(true)
   await act(async () => { await vi.advanceTimersByTimeAsync(299) })
   expect(page).toHaveBeenCalledTimes(initialCalls)
   await act(async () => { await vi.advanceTimersByTimeAsync(1) })
@@ -126,9 +198,26 @@ it('distinguishes an empty journal from no search matches and clears the search'
   await enterSearch('missing')
   await screen.findByRole('heading', { name: 'No recipes match your search.' })
   expect(screen.queryByText(/fresh page/)).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Show all recipes' }))
+  expect(screen.getByText('You searched recipe titles. Try both with the same search.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Show all recipes' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Reset search, sort, and filters' })).toBeNull()
+  const reset = screen.getByRole('button', { name: 'Show all recipes' })
+  reset.focus()
+  fireEvent.click(reset)
   await screen.findByRole('heading', { name: 'A fresh page for your next favorite.' })
   expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('')
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Saved recipes (0)' })))
+})
+
+it('broadens an empty title search without clearing the query or sort', async () => {
+  page.mockImplementation(async ({ criteria }) => ({ recipes: criteria.searchMode === 'both' ? [rice] : [], nextPage: null }))
+  render(tree('cook-a', '/app/recipes?view=index&q=rice&sort=rating'))
+  const broaden = await screen.findByRole('button', { name: 'Search titles and ingredients' })
+  broaden.focus()
+  fireEvent.click(broaden)
+  await ready()
+  expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ criteria: expect.objectContaining({ search: 'rice', sort: 'rating', searchMode: 'both' }) }))
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Saved recipes (1)' })))
 })
 
 it('updates companion guidance when clearing a search while preserving the open panel', async () => {
@@ -161,6 +250,17 @@ it('renders a safe first-page failure with retry', async () => {
   page.mockResolvedValue({ recipes: [rice], nextPage: null })
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
   await ready()
+})
+
+it('offers a sample recipe when the signed-in journal is unavailable', async () => {
+  source = {
+    mode: 'unavailable',
+    list: vi.fn().mockRejectedValue(new RecipeIntegrationUnavailable()),
+    detail: vi.fn(),
+  }
+  render(tree('cook-a', '/app/recipes'))
+  await screen.findByText(/Your recipe journal is not connected yet/)
+  expect(screen.getByRole('link', { name: 'Explore the sample recipe' }).getAttribute('href')).toBe('/demo-recipe')
 })
 
 it('moves focus from a successful first-page retry to the loaded collection', async () => {
@@ -236,7 +336,7 @@ it('resets filters and sort, and starts a previously visited query at page one',
   await waitFor(() => expect(page.mock.calls.at(-1)![0].criteria.filters).toEqual({ 'test-filter': 'test-value' }))
   fireEvent.change(screen.getByRole('combobox', { name: 'Sort recipes' }), { target: { value: 'rating' } })
   await waitFor(() => expect(page.mock.calls.at(-1)![0].criteria.sort).toBe('rating'))
-  fireEvent.click(screen.getByRole('button', { name: 'Reset search and filters' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Reset search, sort, and filters' }))
   await waitFor(() => expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ continuation: null, criteria: initialDiscoveryCriteria })))
   expect(card(salad.title)).toBeNull()
 })
@@ -246,7 +346,7 @@ it('keeps cards visible during a same-query refresh', async () => {
   await ready()
   const refresh = deferred<RecipeDiscoveryPage>()
   page.mockReturnValue(refresh.promise)
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh recipes' }))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Refresh recipes' })[0])
   expect(card()).toBeTruthy()
   expect(await screen.findByText('Updating your collection…')).toBeTruthy()
   await act(async () => refresh.resolve({ recipes: [salad], nextPage: null }))
@@ -372,7 +472,7 @@ it('enables confirmed live search and sorting while omitting unsupported filters
   await ready()
   expect((screen.getByRole('searchbox') as HTMLInputElement).disabled).toBe(false)
   expect((screen.getByRole('combobox', { name: 'Search in' }) as HTMLSelectElement).disabled).toBe(false)
-  expect((screen.getByRole('option', { name: 'Rating' }) as HTMLOptionElement).disabled).toBe(false)
+  expect((screen.getByRole('option', { name: 'Highest rated' }) as HTMLOptionElement).disabled).toBe(false)
   expect(screen.queryByRole('combobox', { name: 'Filters' })).toBeNull()
 })
 
