@@ -357,10 +357,11 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.match(cleanup.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
   assert.doesNotMatch(cleanup.run, /--prune|--all|latest|npx/);
   assert.equal(step(release, 'Deploy to Cloudflare Workers').id, 'deploy-cloudflare');
-  assert.equal(step(release, 'Deploy to Cloudflare Workers').uses, 'cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd');
+  assert.equal(step(release, 'Deploy to Cloudflare Workers').uses, 'cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0');
   assert.deepEqual(step(release, 'Deploy to Cloudflare Workers').with, {
     apiToken: releaseSecrets.PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN,
     accountId: releaseSecrets.PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID,
+    wranglerVersion: '4.168.0',
     command: 'deploy --config wrangler.jsonc',
   });
   const verify = step(release, 'Verify production deployment URL');
