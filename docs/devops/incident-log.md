@@ -8,6 +8,34 @@ Do not count intentional controlled failure experiments, deliberately failing ga
 
 Use [pipeline metrics](pipeline-metrics.md) for defined-period counts/rates and the [deployment runbook](deployment-runbook.md#12-recovery-and-rollback) for rollback procedures. The 2026-11-13 entry below records a production deployment failure, not a proven application outage. The older DEVOPS-86 record concerns non-gating delivery tooling and must not be counted as a production deployment failure. Neither entry establishes a complete sprint incident count.
 
+## Incident 2026-11-27 — Production release credentials unavailable
+
+**Affected revision:** `ace068adfcc8b4bb468e7bc1349204f6077102cb` (squash merge of #291).
+
+- **Detection:** The automatic main run began at 18:56 PHT. Its release job started
+  at 18:58:36 PHT and the presence check failed by 18:58:41 PHT.
+  [Exact-main run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45986263308) ·
+  [Failed release job](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45986263308/job/140463561269)
+- **Impact:** The merged revision did not deploy. The job stopped before checkout
+  and all provider writes. Main validation, hosted RLS, image readiness, and all
+  nine browser shards passed. Separate public runtime smoke and unauthenticated
+  AI-route checks passed on the existing deployment. No application outage was
+  observed in those checks.
+- **Root cause:** The reusable release job entered the correct main-only
+  `production-release` environment, but its caller omitted the three dedicated
+  secret mappings. All three runner inputs were blank despite the environment
+  entries predating the run. The presence check reported the first blank input.
+  [GitHub reusable-workflow secret semantics](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows)
+- **Correction and prevention:** Explicitly pass only the three dedicated names
+  from the trusted main caller. Declare the inputs at the workflow call boundary
+  and retain the environment, runtime presence check, and Cloudflare URL preflight.
+  The regression test asserts the exact mappings and called-workflow declarations
+  alongside the existing blank-value and legacy-fallback checks.
+- **Recovery status:** Corrected production delivery requires a successful
+  exact-main run and post-deployment smoke after independent review and
+  coordinated cutover. Recovery time is pending. The last verified deployment
+  before the failure is [run 45977892706](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45977892706).
+
 ## Incident 2026-11-13 — Cloudflare Workers API failure during production release
 
 **Category:** Production deployment failure / partial release; no production outage demonstrated.  

@@ -117,3 +117,7 @@ jobs:
     with:
       frontend-exists: ${{ needs.frontend.outputs.exists == 'true' }}
       verified-production-origin: ${{ needs.recipe-image-readiness.outputs.verified-origin }}
+    secrets:
+      PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN: ${{ secrets.PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN }}
+      PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN: ${{ secrets.PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN }}
+      PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID }}
