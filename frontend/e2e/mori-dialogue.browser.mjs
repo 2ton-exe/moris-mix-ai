@@ -246,7 +246,6 @@ try {
     await page.getByRole('heading', { name: 'Saved recipes (1)' }).waitFor()
     await page.getByRole('button', { name: 'Talk to Mori' }).click()
     const chat = page.getByRole('region', { name: 'Mori', exact: true })
-    if (width === 1440) await chat.getByText('Journal pages', { exact: true }).click()
     await expect(page.locator('.mori-pet-bubble')).toHaveCSS('opacity', '1')
     const editor = chat.getByRole('button', { name: 'Open recipe editor' })
     const tap = page.locator('.mori-navigation-tap')
@@ -495,7 +494,6 @@ try {
     await chefTrigger.click()
     const chefPanel = chefApp.page.getByRole('region', { name: 'Mori', exact: true })
     await expect(chefPanel.locator('.mori-chat-task')).toHaveText(width === 1440 ? 'What shall we cook with your pantry?' : 'How can I help?')
-    if (width === 1440) await chefPanel.getByText('Journal pages', { exact: true }).click()
     await chefPanel.getByRole('button', { name: 'Open cooking notes' }).click()
     await expect(chefApp.page).toHaveURL(`${origin}app/quick-entry`)
     const notesInput = chefApp.page.getByRole('textbox', { name: 'Cooking notes' })
@@ -634,16 +632,26 @@ try {
       await app.page.evaluate(() => globalThis.document.fonts.ready)
       await settleJournalLayout(app.page)
       const identity = () => app.page.locator(width < 1100 ? '.mm-journal-page .mm-reading-identity' : '.mm-journal-flyleaf .mm-reading-identity').first()
-      const loadingArt = await identity().locator('.mm-recipe-artwork').boundingBox()
-      const loadingHeading = await identity().locator('.mm-recipe-detail__summary').boundingBox()
+      const identityGeometry = async () => {
+        let geometry
+        await expect.poll(async () => {
+          geometry = await identity().evaluate(element => {
+            const artwork = element.querySelector('.mm-recipe-artwork')
+            const summary = element.querySelector('.mm-recipe-detail__summary')
+            return artwork && summary ? { artwork: artwork.getBoundingClientRect().toJSON(), summary: summary.getBoundingClientRect().toJSON() } : null
+          })
+          return Boolean(geometry?.artwork.width && geometry.artwork.height && geometry.summary.width)
+        }).toBe(true)
+        return geometry
+      }
+      const { artwork: loadingArt, summary: loadingHeading } = await identityGeometry()
       const back = app.page.getByRole('link', { name: demo ? 'Back home' : 'Back to recipes', exact: false }).filter({ visible: true })
       await expect(back).toBeVisible()
       await app.page.screenshot({ path: path.join(outputDir, `${width}-${demo ? 'demo' : 'detail'}-loading.png`) })
       releaseRecipe()
       await expect(loading).toHaveCount(0)
       await settleReadingPages(app.page)
-      const loadedArt = await identity().locator('.mm-recipe-artwork').boundingBox()
-      const loadedHeading = await identity().locator('.mm-recipe-detail__summary').boundingBox()
+      const { artwork: loadedArt, summary: loadedHeading } = await identityGeometry()
       for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(loadingArt[key] - loadedArt[key]) <= 2, `Reading artwork ${key} shifts: ${loadingArt[key]} → ${loadedArt[key]}`)
       for (const key of ['x', 'y', 'width']) assert.ok(Math.abs(loadingHeading[key] - loadedHeading[key]) <= 2, `Reading summary ${key} shifts`)
       assert.deepEqual(app.errors, [])

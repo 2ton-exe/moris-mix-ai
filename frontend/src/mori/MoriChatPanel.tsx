@@ -609,14 +609,14 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
       : ''
 
   const shortcuts = <nav className="mori-chat-shortcuts" aria-label="Open a journal page">
-    <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes', 'Opening your recipe collection.', { anchor: event.currentTarget, shortcut: true })}><BookOpen size={16} aria-hidden="true" />Open recipes</button>
-    <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes/new', 'Opening a new recipe.', { anchor: event.currentTarget, shortcut: true })}><NotebookPen size={16} aria-hidden="true" />Open recipe editor</button>
-    <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/quick-entry', 'Opening your cooking notes.', { focus: 'notes', anchor: event.currentTarget, shortcut: true })}><ChefHat size={16} aria-hidden="true" />Open cooking notes</button>
-    <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/chef', 'Opening the pantry field.', { focus: 'pantry', anchor: event.currentTarget, shortcut: true })}><CookingPot size={16} aria-hidden="true" />Open pantry</button>
+    <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes', 'Opening your recipe collection.', { anchor: event.currentTarget, shortcut: true })}><BookOpen size={16} aria-hidden="true" /><span className="mori-chat-shortcut-label">Open recipes</span></button>
+    <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes/new', 'Opening a new recipe.', { anchor: event.currentTarget, shortcut: true })}><NotebookPen size={16} aria-hidden="true" /><span className="mori-chat-shortcut-label">Open recipe editor</span></button>
+    <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/quick-entry', 'Opening your cooking notes.', { focus: 'notes', anchor: event.currentTarget, shortcut: true })}><ChefHat size={16} aria-hidden="true" /><span className="mori-chat-shortcut-label">Open cooking notes</span></button>
+    <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/chef', 'Opening the pantry field.', { focus: 'pantry', anchor: event.currentTarget, shortcut: true })}><CookingPot size={16} aria-hidden="true" /><span className="mori-chat-shortcut-label">Open pantry</span></button>
   </nav>
 
   const context = suggestionContext(location.pathname)
-  const suggestions = <SuggestedPrompts context={context} busy={pending || navigating} draft={composer} preview={dialogue && context !== 'collection' && !hasMessages && !composer} onSelect={prompt => {
+  const suggestions = <SuggestedPrompts navigation={dialogue ? shortcuts : undefined} context={context} busy={pending || navigating} draft={composer} preview={dialogue && context !== 'collection' && !hasMessages && !composer} onSelect={prompt => {
         setMode(prompt.workflow)
         setFollowUp(null)
         setRetryRequest(null)
@@ -664,18 +664,19 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
       </div>
       {pending && <div className="mori-chat-pending"><span role="status" aria-live="polite">Mori is working on your request.</span><button type="button" onClick={cancel}>Cancel</button></div>}
       {!dialogue && suggestions}
+      {dialogue && <div className="mori-chat-tools">
+        {context === 'collection' && !hasMessages && !composer && <div className="mori-chat-quick-prompts" role="group" aria-label="Ideas for this page">
+          <button type="button" onClick={() => { setMode(null); setComposer('find my '); selectedPromptCaret.current = 8 }}><Search size={13} aria-hidden="true" />Find a saved recipe</button>
+          <button type="button" onClick={() => { const message = 'Write a recipe from these cooking notes: '; setMode('create'); setComposer(message); selectedPromptCaret.current = message.length }}><NotebookPen size={13} aria-hidden="true" />Write cooking notes</button>
+        </div>}
+        {suggestions}</div>}
       {example && (!dialogue || !hasMessages) && <p id={`${composerId}-example`} className="mori-chat-example">{example}</p>}
       <form className="mori-chat-composer" onSubmit={(event) => { void submit(event) }}>
         <label className="mori-chat-label" htmlFor={composerId}>Message Mori</label>
         <textarea id={composerId} rows={2} value={composer} disabled={pending || navigating} aria-describedby={example && (!dialogue || !hasMessages) ? `${composerId}-example` : undefined} placeholder={mode === 'create' ? 'What did you cook, and how?' : mode === 'suggest' ? 'What ingredients do you have?' : 'Tell Mori what you need…'} onChange={(event) => setComposer(event.currentTarget.value)} onKeyDown={submitOnShortcut} />
         <button type="submit" disabled={pending || navigating || !composer.trim()}>Send</button>
       </form>
-      {dialogue ? <div className="mori-chat-tools">
-        {context === 'collection' && !hasMessages && !composer && <div className="mori-chat-quick-prompts" role="group" aria-label="Ideas for this page">
-          <button type="button" onClick={() => { setMode(null); setComposer('find my '); selectedPromptCaret.current = 8 }}><Search size={13} aria-hidden="true" />Find a saved recipe</button>
-          <button type="button" onClick={() => { const message = 'Write a recipe from these cooking notes: '; setMode('create'); setComposer(message); selectedPromptCaret.current = message.length }}><NotebookPen size={13} aria-hidden="true" />Write cooking notes</button>
-        </div>}
-        {suggestions}<details className="mori-chat-pages"><summary>Journal pages</summary>{shortcuts}</details></div> : shortcuts}
+      {!dialogue && shortcuts}
       <p className="mori-chat-hint">Enter a new line; press Ctrl/⌘ + Enter to send.</p>
     </div>
   </div>

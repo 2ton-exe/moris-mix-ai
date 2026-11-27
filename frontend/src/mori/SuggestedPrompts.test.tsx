@@ -36,3 +36,23 @@ it('defers context changes while a suggestion has focus', () => {
   fireEvent.blur(button, { relatedTarget: document.body })
   expect(group.textContent).not.toBe(original)
 })
+
+it('keeps direct navigation beside its disclosure while suggestions open and close', () => {
+  const onSelect = vi.fn()
+  const navigation = <nav aria-label="Open a journal page"><button type="button">Open recipes</button><button type="button">Open recipe editor</button><button type="button">Open cooking notes</button><button type="button">Open pantry</button></nav>
+  render(<SuggestedPrompts context="pantry" busy={false} draft="" onSelect={onSelect} navigation={navigation} />)
+  const toggle = screen.getByRole('button', { name: 'Suggested prompts' })
+  const nav = screen.getByRole('navigation', { name: 'Open a journal page' })
+  expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  expect(screen.queryByRole('group', { name: 'Suggested prompts' })).toBeNull()
+  expect(toggle.parentElement).toBe(nav.parentElement)
+  fireEvent.click(toggle)
+  expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  expect(within(nav).getAllByRole('button')).toHaveLength(4)
+  fireEvent.click(screen.getByRole('button', { name: 'See more' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Record a recipe' }))
+  expect(onSelect).toHaveBeenCalledOnce()
+  expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  expect(screen.queryByRole('group', { name: 'Suggested prompts' })).toBeNull()
+  expect(within(nav).getAllByRole('button')).toHaveLength(4)
+})
