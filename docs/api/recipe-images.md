@@ -159,7 +159,7 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 
 | HTTP status | Code | Message | When |
 | --- | --- | --- | --- |
-| `413 Payload Too Large` | `INPUT_TOO_LARGE` | `Request body is too large.` | An image metadata POST body exceeds 4,096 bytes. |
+| `413 Payload Too Large` | `INPUT_TOO_LARGE` | `Request body must be at most 4096 bytes.` | An image metadata POST body exceeds 4,096 bytes. |
 | `400 Bad Request` | `INVALID_JSON` | `Request body must be a valid JSON object.` | Request body is empty, malformed JSON, or not a plain JSON object. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe image request.` | Invalid UUID, image type, declared size, or unknown request fields. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Missing or invalid authentication credentials.` | Missing, invalid, or expired Bearer token. |
