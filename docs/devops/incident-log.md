@@ -19,31 +19,39 @@ Use [pipeline metrics](pipeline-metrics.md) for defined-period counts/rates and 
 
 ## Incident 2026-11-27 — Production release credentials unavailable
 
-**Affected revision:** `ace068adfcc8b4bb468e7bc1349204f6077102cb` (squash merge of #291).
+**Affected revisions:** #291 at `ace068adfcc8b4bb468e7bc1349204f6077102cb`
+and #304 at `d614eaf9bb6a9b65a3d2e4b3e0b123f31a5a9b5c`.
 
 - **Detection:** The automatic main run began at 18:56 PHT. Its release job started
   at 18:58:36 PHT and the presence check failed by 18:58:41 PHT.
   [Exact-main run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45986263308) ·
   [Failed release job](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45986263308/job/140463561269)
-- **Impact:** The merged revision did not deploy. The job stopped before checkout
-  and all provider writes. Main validation, hosted RLS, image readiness, and all
-  nine browser shards passed. Separate public runtime smoke and unauthenticated
-  AI-route checks passed on the existing deployment. No application outage was
-  observed in those checks.
+- **Impact:** Both revisions stopped at the release credential check, before
+  checkout or any provider write. On the initial failed run, main validation,
+  hosted RLS, image readiness, and all nine browser shards passed. Separate
+  public runtime and unauthenticated AI-route checks passed on the incumbent
+  deployment. No application outage was observed in the recorded checks.
+  [Repeated #304 failure](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45994584072)
 - **Root cause:** The reusable release job entered the correct main-only
   `production-release` environment, but its caller omitted the three dedicated
   secret mappings. All three runner inputs were blank despite the environment
   entries predating the run. The presence check reported the first blank input.
   [GitHub reusable-workflow secret semantics](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows)
-- **Correction and prevention:** Explicitly pass only the three dedicated names
-  from the trusted main caller. Declare the inputs at the workflow call boundary
-  and retain the environment, runtime presence check, and Cloudflare URL preflight.
-  The regression test asserts the exact mappings and called-workflow declarations
-  alongside the existing blank-value and legacy-fallback checks.
-- **Recovery status:** Corrected production delivery requires a successful
-  exact-main run and post-deployment smoke after independent review and
-  coordinated cutover. Recovery time is pending. The last verified deployment
-  before the failure is [run 45977892706](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45977892706).
+- **Correction and prevention:** [#303](https://github.com/2ton-exe/moris-mix-ai/pull/303)
+  passes only the three dedicated names from the trusted main caller and
+  declares them at the reusable workflow boundary. It retains the protected
+  environment, credential presence check, and Cloudflare URL preflight. The
+  regression test checks the mappings and declarations alongside blank-value
+  and legacy-fallback assertions.
+- **Recovery:** Main `c09c25e15fa32be7e9edc612a1e8ee5ee1a016a3` passed all 16
+  jobs in [run 45997105147](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45997105147).
+  The protected job passed credential validation, Cloudflare preflight, seven
+  intended Edge Function deploys, the Worker deployment, HTTPS URL verification,
+  AI-route checks, and runtime smoke. Cloudflare confirmed Worker version
+  `f5510010-c808-4008-9c9d-b06327bee6b9` at 100% traffic. Runtime smoke completed
+  at 20:19:14 PHT, **1h 20m 33s** after the initial failed credential check.
+  That interval measures delivery recovery. The [post-merge record](https://github.com/2ton-exe/moris-mix-ai/pull/303#issuecomment-7218166058)
+  links the retained smoke evidence.
 
 ## Incident 2026-11-13 — Cloudflare Workers API failure during production release
 
