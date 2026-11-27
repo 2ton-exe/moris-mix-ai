@@ -268,14 +268,8 @@ export const UpdateRecipeRequestSchema = z.object({
   cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate)
     .nullable().optional(),
 }).strict().refine(
-  (data) => Object.keys(data).length > 0,
+  (data) => Object.keys(data).some((key) => key !== "expected_updated_at"),
   { message: "At least one field must be provided for update." },
-).refine(
-  (data) => data.expected_updated_at === undefined || data.notes !== undefined || data.cooked_at !== undefined,
-  {
-    path: ["expected_updated_at"],
-    message: "A recipe version requires a notes or cooked date update.",
-  },
 );
 
 export type CreateRecipeRequest = z.infer<typeof CreateRecipeRequestSchema>;

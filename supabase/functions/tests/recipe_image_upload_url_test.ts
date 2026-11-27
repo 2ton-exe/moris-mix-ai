@@ -1141,3 +1141,61 @@ Deno.test("a committed claim with a lost response is released before retry", asy
   assertEquals(releases, 2);
   assertEquals(stored.length, 1);
 });
+
+Deno.test("upload signing cancels oversized streamed metadata without Content-Length", async () => {
+  const { deps, calls } = mock();
+  let reads = 0;
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      reads++;
+      if (reads > 3) return controller.close();
+      controller.enqueue(
+        new TextEncoder().encode(" ".repeat(reads <= 2 ? 2048 : 1)),
+      );
+    },
+    cancel() {
+      cancelled = true;
+    },
+  }, { highWaterMark: 0 });
+  const req = new Request(
+    "https://edge.invalid/functions/v1/recipe-image-upload-url",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body,
+    },
+  );
+  assertEquals(req.headers.has("Content-Length"), false);
+  await expectError(await handler(req, deps), 413, "INPUT_TOO_LARGE");
+  assertEquals(cancelled, true);
+  assertEquals(reads, 3);
+  assertEquals(calls.length, 1);
+});
+
+Deno.test("upload signing accepts streamed metadata at the byte limit", async () => {
+  const { deps, calls } = mock();
+  const req = new Request(request(), {
+    body: new Response(JSON.stringify(payload).padEnd(4096, " ")).body,
+  });
+  const response = await handler(req, deps);
+  assertEquals(response.status, 200);
+  assertEquals(calls.length, 2);
+  await response.body?.cancel();
+});
+
+Deno.test("upload signing rejects unreadable metadata streams", async () => {
+  const { deps, calls } = mock();
+  const req = new Request(request(), {
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error("Disconnected"));
+      },
+    }),
+  });
+  await expectError(await handler(req, deps), 400, "INVALID_JSON");
+  assertEquals(calls.length, 1);
+});

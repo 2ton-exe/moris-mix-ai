@@ -1,3 +1,4 @@
+import { readBodyWithinByteLimit } from "../_shared/ai/http.ts";
 import { type AuthDeps, authenticateRequest } from "../_shared/auth.ts";
 import {
   getCorsHeaders,
@@ -8,7 +9,10 @@ import {
   createLifecycleRpc,
   type LifecycleDeps,
 } from "../_shared/recipe-images/lifecycle.ts";
-import { RecipeImageRecipeRequestSchema } from "../_shared/recipe-images/schemas.ts";
+import {
+  MAX_RECIPE_IMAGE_METADATA_BYTES,
+  RecipeImageRecipeRequestSchema,
+} from "../_shared/recipe-images/schemas.ts";
 
 const METHODS = "POST, OPTIONS";
 export type DeleteDeps = AuthDeps & LifecycleDeps;
@@ -57,9 +61,26 @@ export async function handler(
   if (!auth.ok) {
     return authFailure(auth.response);
   }
+  const read = await readBodyWithinByteLimit(
+    req,
+    MAX_RECIPE_IMAGE_METADATA_BYTES,
+  );
+  if (!read.ok) {
+    return read.reason === "too_large"
+      ? failure(
+        "INPUT_TOO_LARGE",
+        `Request body must be at most ${MAX_RECIPE_IMAGE_METADATA_BYTES} bytes.`,
+        413,
+      )
+      : failure(
+        "INVALID_JSON",
+        "Request body must be a valid JSON object.",
+        400,
+      );
+  }
   let body: unknown;
   try {
-    body = await req.json();
+    body = JSON.parse(read.text);
   } catch {
     return failure(
       "INVALID_JSON",
