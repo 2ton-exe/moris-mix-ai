@@ -889,8 +889,14 @@ try {
   await page.goto(`${origin}app/chef`)
   await page.getByRole('textbox', { name: 'Pantry ingredient' }).fill('rice')
   await page.getByRole('textbox', { name: 'Pantry ingredient' }).press('Enter')
+  await settleJournalLayout(page)
   await page.locator('.mm-ai-chef__quick-add summary').click()
+  await expect(page.locator('.mm-ai-chef__quick-add')).toHaveAttribute('open', '')
   await page.getByRole('button', { name: 'eggs', exact: true }).click({ trial: true })
+  assert.ok(await page.locator('.mm-ai-chef__entry-panel').evaluate((panel) =>
+    panel.getBoundingClientRect().bottom <= panel.closest('.mm-journal-flyleaf').querySelector('.mm-pagination-slot--left').getBoundingClientRect().top
+  ), 'Expanded pantry suggestions stay above the left page-turn control')
+  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-pantry-expanded-1280.png'), animations: 'disabled' })
   const preferencesJump = page.getByRole('button', { name: /^Next page/ })
   await expect(preferencesJump).toBeInViewport({ ratio: 1 })
   await expect(preferencesJump).toContainText('Cooking preferences')
