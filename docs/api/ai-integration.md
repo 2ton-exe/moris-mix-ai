@@ -65,6 +65,17 @@ The whole request body must be **≤ 128 KiB**. The endpoint streams the body an
 ```
 
 `recipe` matches `ExtractedRecipeSchema` in `supabase/functions/_shared/ai/schemas.ts`.
+Extraction and generation share deterministic ingredient normalization with
+manual recipe writes: recognized unit aliases become canonical values, unknown
+units remain trimmed custom values, and unspecified quantities stay `null`.
+Supplied quantities must be positive numbers; fractions in source notes are
+returned as numeric quantities. Units are bounded to 100 characters without
+control characters. `quantityText` is an amount override, not a preparation note;
+it preserves any supplied quantity/unit and takes precedence only in display
+and scaling. See [ingredient amount semantics](recipes.md#ingredient-amounts-and-units).
+These rules require no extra model call. Automated coverage uses mocked providers;
+AI remains intentionally disabled in staging.
+
 `flavor_scores` and per-ingredient `quantityText` are optional. Instruction steps are
 numbered `1..n` in order. **No recipe or lineage row is created; the quota reservation
 and daily usage counter are recorded.**
@@ -224,7 +235,7 @@ recipe constraints (dietary needs, exclusions, taste, time), never as instructio
   "recipe": {
     "title": "Quick Egg Fried Rice",
     "ingredients": [
-      { "name": "rice", "quantity": 2, "unit": "cups", "inferred": false },
+      { "name": "rice", "quantity": 2, "unit": "cup", "inferred": false },
       { "name": "eggs", "quantity": 2, "unit": null, "inferred": false }
     ],
     "instructions": [ { "step": 1, "text": "Scramble the eggs, then fold in the rice." } ],
