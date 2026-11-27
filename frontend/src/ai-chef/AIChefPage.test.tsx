@@ -208,6 +208,8 @@ describe('AI Chef pantry and review workflow', () => {
     const pantry = screen.getByRole('region', { name: 'Pantry list, 1 item' })
     expect(pantry.querySelector('[data-duplicate]')?.textContent).toContain('Green Onions')
     expect(pantry.querySelector('[data-duplicate]')?.textContent).toContain('Already in your pantry')
+    expect(screen.getByRole('status', { name: 'Mori says' }).textContent).toContain('one spot in the pantry, twice the enthusiasm')
+    expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
     expect(within(screen.getByRole('region', { name: 'Mori' })).getByText(/one spot in the pantry, twice the enthusiasm/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Close Mori' }))
@@ -601,7 +603,7 @@ describe('AI Chef pantry and review workflow', () => {
 
     addIngredient(' Rice ')
     addIngredient('rice')
-    expect(screen.getByRole('status').textContent).toContain('already in your pantry list')
+    expect(screen.getByText('That ingredient is already in your pantry list.').getAttribute('role')).toBe('status')
     addIngredient('tomatoes')
     expect(screen.getByRole('region', { name: 'Pantry list, 2 items' }).textContent).toContain('Rice')
     fireEvent.click(screen.getByRole('button', { name: 'Remove tomatoes' }))

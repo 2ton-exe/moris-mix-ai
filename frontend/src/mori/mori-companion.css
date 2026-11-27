@@ -281,3 +281,7 @@
   .mori-pet-bubble .mori-pet-resize:focus-visible { outline: none; }
   .mori-pet-bubble .mori-pet-resize:focus-visible svg { outline: 2px solid var(--mm-color-burgundy-600); outline-offset: 4px; border-radius: 2px; }
 }
+
+.mori-pet-feedback { box-sizing: border-box; margin: 0; padding: 12px 16px; overflow: auto; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; background: var(--mm-color-parchment-50); border: 1px solid var(--mm-color-espresso-300); border-radius: 12px 12px 12px 4px; box-shadow: 0 3px 8px rgb(47 33 26 / .2); }
+
+.mori-pet-panel[hidden] { display: none; }
