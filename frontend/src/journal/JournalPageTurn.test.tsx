@@ -387,3 +387,20 @@ it('reads readiness only from the live single paper, not its frozen outgoing sna
   expect(commit).toHaveBeenCalledTimes(1)
   expect(frames.size).toBe(0)
 })
+
+it('waits for the footer reserve before freezing a prepared destination', () => {
+  renderProbe()
+  const page = document.querySelector<HTMLElement>('.mm-journal-spread > .mm-journal-page')!
+  const footer = page.querySelector<HTMLElement>('.mm-footer-actions')!
+  Object.defineProperty(footer, 'offsetHeight', { configurable: true, value: 0 })
+  page.style.setProperty('--mm-footer-height', '90px')
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  advance()
+  expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('preparing')
+  expect(screen.getByTestId('probe-location').getAttribute('data-committed-page')).toBe('0')
+  page.style.setProperty('--mm-footer-height', '0px')
+  advance()
+  expect(document.querySelector('.mm-turn-under--right')?.textContent).toContain('Right page 1')
+  sample(1)
+  expect(screen.getByTestId('probe-location').getAttribute('data-committed-page')).toBe('1')
+})

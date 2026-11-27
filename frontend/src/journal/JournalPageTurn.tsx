@@ -370,7 +370,11 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
     const prepare = () => {
       if (pending.current !== request) return
       if (book.querySelector('.mm-journal-spread')?.querySelector('[data-journal-ready="error"]')) { cancel(request.id); return }
-      if (book.querySelector('.mm-journal-spread')?.querySelector('[data-journal-ready="false"], [data-reading-ready="false"]') || (document.fonts?.status === 'loading' && performance.now() - started < 1000)) {
+      const page = book.querySelector<HTMLElement>(':scope > .mm-journal-spread > .mm-journal-page')
+      const footer = page?.querySelector<HTMLElement>('.mm-footer-actions')
+      const reserve = page?.style.getPropertyValue('--mm-footer-height')
+      const footerSettled = !footer || !reserve || Number.parseFloat(reserve) === footer.offsetHeight
+      if (!footerSettled || book.querySelector('.mm-journal-spread')?.querySelector('[data-journal-ready="false"], [data-reading-ready="false"]') || (document.fonts?.status === 'loading' && performance.now() - started < 1000)) {
         settled = false
         frame.current = requestAnimationFrame(prepare)
         return
