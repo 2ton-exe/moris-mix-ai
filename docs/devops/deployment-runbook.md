@@ -169,7 +169,7 @@ This is a separate, **off by default** operation from staging cleanup. This PR p
    gh workflow disable recipe-image-final-cleanup.yml --repo 2ton-exe/moris-mix-ai
    ```
 
-3. Generate a new independent random token of at least 32 characters in the approved secret manager. Configure the same value as Supabase runtime `RECIPE_IMAGE_FINAL_CLEANUP_TOKEN` and as the GitHub environment secret of that name. Never reuse `RECIPE_IMAGE_CLEANUP_TOKEN`. From the release checkout, the following operator-only commands accept the token without echoing it; use the verified project reference in `SUPABASE_PROJECT_REF` and an authorized Supabase CLI session. Do not put tokens in repository files or logs:
+3. Generate a new independent random token of at least 32 characters in the approved secret manager. Configure the same value as Supabase runtime `RECIPE_IMAGE_FINAL_CLEANUP_TOKEN` and as the GitHub environment secret of that name. Never reuse `RECIPE_IMAGE_CLEANUP_TOKEN`. From the release checkout, the following operator-only Bash commands accept the token without echoing it; use the verified project reference in `SUPABASE_PROJECT_REF` and an authorized Supabase CLI session. Do not put tokens in repository files or logs:
 
    ```sh
    read -rs RECIPE_IMAGE_FINAL_CLEANUP_TOKEN
@@ -230,14 +230,15 @@ The production release order is:
 8. Deploy `recipe-image-attach` (`deploy-recipe-image-attach`).
 9. Deploy `recipe-image-download-url` only when `VITE_RECIPE_IMAGES == 'true'`.
 10. Deploy `recipe-image-upload-cleanup` only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`.
-11. Deploy `recipe-image-upload-url` only when `VITE_RECIPE_IMAGES == 'true'`.
-12. Deploy Cloudflare Workers assets.
-13. Verify the production deployment URL.
-14. Verify deployed AI routes (`ai-route-smoke`).
-15. Run production runtime smoke (`runtime-smoke`); account-export preflight and unauthenticated access checks run only when its deploy step is enabled and succeeds. The current `if: false` means those export checks do not execute.
-16. Record each deployment, URL verification, AI route smoke, and runtime smoke
+11. Deploy `recipe-image-final-cleanup` and verify its unauthenticated `401` probe only when `RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'`. Keep this independent opt-in off until the [activation steps](#enable-finalized-image-cleanup) are complete.
+12. Deploy `recipe-image-upload-url` only when `VITE_RECIPE_IMAGES == 'true'`.
+13. Deploy Cloudflare Workers assets.
+14. Verify the production deployment URL.
+15. Verify deployed AI routes (`ai-route-smoke`).
+16. Run production runtime smoke (`runtime-smoke`); account-export preflight and unauthenticated access checks run only when its deploy step is enabled and succeeds. The current `if: false` means those export checks do not execute.
+17. Record each deployment, URL verification, AI route smoke, and runtime smoke
     outcome independently, including failures or skipped downstream steps.
-17. Preserve the separate runtime and AI route evidence artifacts.
+18. Preserve the separate runtime and AI route evidence artifacts.
 
 Each Supabase deployment is a separate explicit target using the repository-pinned
 CLI from `frontend`. The workflow maps `PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN`
@@ -891,13 +892,14 @@ manual dispatch on `main` follows the same production path:
 8. Deploy the explicit `recipe-image-attach` Edge Function target.
 9. Deploy `recipe-image-download-url` only when `VITE_RECIPE_IMAGES == 'true'`.
 10. Deploy `recipe-image-upload-cleanup` only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`.
-11. Deploy `recipe-image-upload-url` only when `VITE_RECIPE_IMAGES == 'true'`. The four unconditional targets and these conditional targets use the Supabase CLI and explicit project reference; handlers enforce authentication.
-12. Deploy to Cloudflare only after all active or enabled conditional function deployments succeed.
-13. Verify the production deployment URL against `PRODUCTION_FRONTEND_URL`.
-14. Verify both AI routes using production-frontend browser preflight CORS and unauthenticated, payload-free 401 probes. Both response types must permit the production frontend; no provider execution or quota behavior is tested.
-15. Run production runtime smoke. It verifies the public demo response and checks account-export's preflight and unauthenticated 401 contract only if its deployment step is enabled and succeeds; its current `if: false` means those export checks are skipped. Smoke does not verify authenticated recipe CRUD or export ownership.
-16. Inspect the production summary's separate outcomes for recipes, account-export, each image function, extract-recipe, generate-recipe, Cloudflare, URL verification, AI route smoke, and runtime smoke. A failed deployment or smoke fails delivery; it does not roll back earlier deployments.
-17. Retain both JSON evidence artifacts and the summary: `production-ai-route-smoke-<run>-<attempt>` and `production-runtime-smoke-<run>-<attempt>`. A skipped or missing smoke artifact is not evidence of a passed execution.
+11. Deploy `recipe-image-final-cleanup` and verify its unauthenticated `401` probe only when `RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'`. Keep this independent opt-in off until the [activation steps](#enable-finalized-image-cleanup) are complete.
+12. Deploy `recipe-image-upload-url` only when `VITE_RECIPE_IMAGES == 'true'`. The four unconditional targets and these conditional targets use the Supabase CLI and explicit project reference; handlers enforce authentication.
+13. Deploy to Cloudflare only after all active or enabled conditional function deployments succeed.
+14. Verify the production deployment URL against `PRODUCTION_FRONTEND_URL`.
+15. Verify both AI routes using production-frontend browser preflight CORS and unauthenticated, payload-free 401 probes. Both response types must permit the production frontend; no provider execution or quota behavior is tested.
+16. Run production runtime smoke. It verifies the public demo response and checks account-export's preflight and unauthenticated 401 contract only if its deployment step is enabled and succeeds; its current `if: false` means those export checks are skipped. Smoke does not verify authenticated recipe CRUD or export ownership.
+17. Inspect the production summary's separate outcomes for recipes, account-export, each image function, extract-recipe, generate-recipe, Cloudflare, URL verification, AI route smoke, and runtime smoke. A failed deployment or smoke fails delivery; it does not roll back earlier deployments.
+18. Retain both JSON evidence artifacts and the summary: `production-ai-route-smoke-<run>-<attempt>` and `production-runtime-smoke-<run>-<attempt>`. A skipped or missing smoke artifact is not evidence of a passed execution.
 
 The deployment does not apply database migrations. Before relying on recipe CRUD, verify the production migration ledger and apply any pending recipe migrations through the separately managed database release process.
 
