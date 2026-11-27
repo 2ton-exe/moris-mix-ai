@@ -329,6 +329,51 @@ it('enables image upload for a new recipe only after its save returns a stable I
   expect(JSON.parse(downloadRequest?.[1]?.body as string)).toEqual({ recipe_id: recipeId })
 })
 
+it('distinguishes an empty photo slot, a selected preview, failed upload, and verified attachment', async () => {
+  noImage = true
+  renderEditPage()
+  await screen.findByText('No recipe photo has been added yet.')
+  expect(screen.getByRole('button', { name: 'Choose a photo' })).toBeTruthy()
+  expect(screen.getByLabelText('Empty recipe photo frame')).toBeTruthy()
+
+  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
+    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
+  })
+  await screen.findByRole('img', { name: 'Selected recipe image preview' })
+  expect(screen.queryByText('No recipe photo has been added yet.')).toBeNull()
+  expect(screen.getByText('Selected photo — upload to attach privately.')).toBeTruthy()
+  expect(screen.queryByText('Attached privately')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
+  await screen.findByRole('alert')
+  expect(screen.getByRole('img', { name: 'Selected recipe image preview' })).toBeTruthy()
+  expect(screen.queryByText('Attached privately')).toBeNull()
+
+  noImage = false
+  fireEvent.click(screen.getByRole('button', { name: 'Retry upload' }))
+  await screen.findByText('Recipe image saved.')
+  expect(screen.getByText('Attached privately')).toBeTruthy()
+  expect(screen.queryByText('Selected photo — upload to attach privately.')).toBeNull()
+  expect(screen.queryByRole('img', { name: 'Selected recipe image preview' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Replace photo' })).toBeTruthy()
+})
+
+it('keeps verified attachment distinct from a selected photo when its display URL cannot refresh', async () => {
+  noImage = true
+  putFirstFails = false
+  renderEditPage()
+  await screen.findByText('No recipe photo has been added yet.')
+  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
+    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
+  })
+  await screen.findByRole('img', { name: 'Selected recipe image preview' })
+  fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
+  await screen.findByRole('button', { name: 'Refresh attached image' })
+  expect(screen.getByText('Photo attached; refreshing the saved image.')).toBeTruthy()
+  expect(screen.queryByText('No recipe photo has been added yet.')).toBeNull()
+  expect(screen.queryByText('Selected photo — upload to attach privately.')).toBeNull()
+  expect(attachCount).toBe(1)
+})
+
 it('hides saved create-image controls when the authenticated account changes', async () => {
   noImage = true
   const view = renderCreatePage(vi.fn(async () => ({ id: recipeId })))
