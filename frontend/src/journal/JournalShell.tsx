@@ -109,20 +109,15 @@ function JournalShellSurface({ account, children, pageClassName = '', mode = 'jo
     if (!footer || typeof ResizeObserver === 'undefined') return
     const page = footer.closest<HTMLElement>('.mm-journal-page')
     if (!page) return
-    let frame = 0
     const update = () => {
       const height = `${footer.offsetHeight}px`
       if (page.style.getPropertyValue('--mm-footer-height') !== height) page.style.setProperty('--mm-footer-height', height)
     }
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(update)
-    })
+    const observer = new ResizeObserver(update)
     observer.observe(footer)
     update()
     return () => {
       observer.disconnect()
-      cancelAnimationFrame(frame)
     }
   }, [footer])
   return <JournalShellMounted.Provider value={true}><JournalPageTurnContext.Provider value={pageTurn.contextValue}>

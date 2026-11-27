@@ -140,6 +140,14 @@ async function verifyMoriPageTurn(page, character, direction) {
     })
   })
   assert.ok(destinationPositions.some((position) => position.key === 'footer:right'), 'Prepared paper must retain a visible pagination footer')
+  if (spatial) {
+    const reserved = await page.locator('.mm-journal-book > .mm-journal-spread .mm-journal-page').evaluate(page => ({
+      measured: Number.parseFloat(page.style.getPropertyValue('--mm-footer-height')),
+      current: page.querySelector('.mm-footer-actions').offsetHeight,
+    }))
+    assert.equal(reserved.measured, reserved.current, 'Paper snapshots must use the current footer reserve before the turn starts')
+  }
+
   await layer.evaluate((node) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
   await page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'))
   await expect(character).not.toHaveAttribute('data-turn-direction', direction)
