@@ -222,7 +222,7 @@ The production release order is:
 
 1. Check the dedicated `production-release` secrets before checkout, then validate production deployment configuration.
 2. Install frontend dependencies using the frozen lockfile.
-3. Build the frontend, reject a stale main revision, and verify the production Cloudflare Worker URL before the first provider write. Check recipe image prerequisites when enabled.
+3. Build the frontend, reject a stale main revision, and verify the production Cloudflare Worker URL before the first provider write. Unconditionally verify Chef migration `20261127113008` in the intended project ledger, then check recipe image prerequisites when enabled. The release fails before any deployment if the Chef version cannot be verified. The `PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN` needs `database_migrations_read` even when images are disabled; apply the additive migration through the separately authorized guarded database release before retrying.
 4. Deploy `recipes` (`deploy-recipes`).
 5. Skip `account-export` (`deploy-account-export`); its step is explicitly `if: false` pending BE-16 acceptance gates.
 6. Deploy `extract-recipe` (`deploy-extract-recipe`).
@@ -888,7 +888,7 @@ manual dispatch on `main` follows the same production path:
 4. Deploy the explicit `recipes` Edge Function target.
 5. Skip the explicit `account-export` target; its workflow step is `if: false` pending BE-16 acceptance gates.
 6. Deploy the explicit `extract-recipe` Edge Function target.
-7. Deploy the explicit `generate-recipe` Edge Function target.
+7. Deploy the explicit `generate-recipe` Edge Function target. Before the first deployment, the unconditional Chef ledger check must verify migration `20261127113008`; a missing version or unavailable ledger blocks the release. Use the separate guarded database release to apply the additive migration before retrying.
 8. Deploy the explicit `recipe-image-attach` Edge Function target.
 9. Deploy `recipe-image-download-url` only when `VITE_RECIPE_IMAGES == 'true'`.
 10. Deploy `recipe-image-upload-cleanup` only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`.

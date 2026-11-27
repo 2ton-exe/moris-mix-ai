@@ -173,8 +173,14 @@ returns `422 AI_CONTEXT_TOO_LARGE`. Legacy scoring rows exceeding a page budget
 are skipped and reported through `truncated`; ordinary candidate-limit truncation
 still means additional recipes exist beyond the scanned 1,000.
 
-Apply the paged Chef retrieval migration in non-production before releasing the
-updated Edge handler. The old two-integer RPC overload remains for the separately
+Apply `20261127113008_paged_chef_candidate_retrieval.sql` through the guarded
+database release in each target environment before releasing the updated Edge
+handler. The production app release unconditionally checks that version in the
+intended project migration ledger before any deployment, even when image flags
+are off. A missing version, malformed ledger, or ledger HTTP/timeout failure
+blocks the release; it never applies the migration automatically. The production
+release token therefore requires `database_migrations_read` even for releases
+with images disabled. The old two-integer RPC overload remains for the separately
 deployed handler during this rollout; the new handler uses the scoring-page RPC
 and the ID-array overload. Remove the old overload only in a later cleanup after
 all handlers have moved. Follow the guarded database and Edge release workflows;

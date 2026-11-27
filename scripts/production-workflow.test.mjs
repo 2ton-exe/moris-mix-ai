@@ -281,7 +281,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
   const ordered = ['Validate production release credentials', 'Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend',
-    'Reject stale production revision', 'Verify production Cloudflare Worker URL', 'Verify recipe image release prerequisites', 'Deploy recipes Edge Function',
+    'Reject stale production revision', 'Verify production Cloudflare Worker URL', 'Verify Chef database prerequisite', 'Verify recipe image release prerequisites', 'Deploy recipes Edge Function',
     'Deploy account-export Edge Function',
     'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function', 'Deploy recipe-image-attach Edge Function',
     'Deploy recipe-image-download-url Edge Function', 'Deploy recipe image upload cleanup Edge Function',
@@ -1133,4 +1133,44 @@ test('final cleanup availability probe is read-only and requires the configured 
     });
     assert.equal(result.status, exitCode, result.stdout + result.stderr);
   }
+});
+
+
+test('every Chef release verifies its migration before any deployment, regardless of image flags', () => {
+  const gate = step(release, 'Verify Chef database prerequisite');
+  assert.ok(gate, 'Chef migration gate must exist');
+  assert.equal(gate.if, undefined);
+  assert.notEqual(gate['continue-on-error'], true);
+  assert.deepEqual(gate.env, {
+    SUPABASE_ACCESS_TOKEN: releaseSecrets.PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN,
+    SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
+  });
+  const gateIndex = release.steps.indexOf(gate);
+  for (const deploy of release.steps.filter(item => item.run?.includes('functions deploy ') || item.id === 'deploy-cloudflare')) {
+    assert.ok(gateIndex < release.steps.indexOf(deploy), deploy.name);
+    assert.notEqual(deploy.if, 'always()');
+  }
+  assert.ok(existsSync('supabase/migrations/20261127113008_paged_chef_candidate_retrieval.sql'));
+  const check = ({ response = '[{"version":"20261127113008"}]', curlStatus = '0' } = {}) => spawnSync('bash', ['-c', `
+    curl() {
+      local url
+      for url in "$@"; do :; done
+      [[ "$url" == https://api.supabase.com/v1/projects/test-project/database/migrations ]] || return 99
+      printf '%s' "$TEST_LEDGER"
+      return "$TEST_CURL_STATUS"
+    }
+    ${gate.run}
+  `], { encoding: 'utf8', env: {
+    ...process.env, SUPABASE_PROJECT_REF: 'test-project', SUPABASE_ACCESS_TOKEN: 'synthetic-token',
+    VITE_RECIPE_IMAGES: 'false', RECIPE_IMAGE_CLEANUP_ENABLED: 'false', RECIPE_IMAGE_FINAL_CLEANUP_ENABLED: 'false',
+    TEST_LEDGER: response, TEST_CURL_STATUS: curlStatus,
+  } });
+  assert.equal(check().status, 0);
+  for (const response of ['[]', '[{"version":"20261114000018"}]', '{}', 'null', 'not JSON', '{"version":"20261127113008"}']) {
+    const result = check({ response });
+    assert.equal(result.status, 1, response);
+    assert.match(result.stdout, /20261127113008/);
+  }
+  for (const curlStatus of ['22', '28']) assert.notEqual(check({ curlStatus }).status, 0);
+  assert.doesNotMatch(gate.run, /db push|migration up|run-migrations|secrets set|functions deploy/);
 });

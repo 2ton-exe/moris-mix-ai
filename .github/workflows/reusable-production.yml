@@ -141,6 +141,21 @@ jobs:
           PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/verify-production-worker-url.mjs
 
+      - name: Verify Chef database prerequisite
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          migrations="$(curl --fail --silent --show-error --max-time 30 \
+            --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/migrations")"
+          if ! jq -e 'type == "array" and any(.[]; .version == "20261127113008")' <<< "$migrations" >/dev/null 2>&1; then
+            echo "::error::Could not verify required Chef migration 20261127113008. Apply it through the guarded database release before deploying the new Chef handler."
+            exit 1
+          fi
+
       - name: Verify recipe image release prerequisites
         if: env.VITE_RECIPE_IMAGES == 'true' || vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' || vars.RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'
         env:
