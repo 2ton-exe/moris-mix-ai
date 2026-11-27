@@ -583,6 +583,10 @@ try {
     const steps = new Set()
     const turns = []
     for (;;) {
+      const clippedSteps = await page.locator('.mm-journal-book > .mm-journal-spread textarea[name^="instructions."]').evaluateAll(fields => fields
+        .filter(field => field.scrollHeight > field.clientHeight + 1)
+        .map(field => ({ name: field.name, visible: field.clientHeight, content: field.scrollHeight })))
+      assert.deepEqual(clippedSteps, [], 'Method text must fit its field when a continuation page opens')
       const visible = await collectVisibleRows()
       const overflow = await page.locator('.mm-journal-book > .mm-journal-spread .mm-writing-leaf').evaluateAll((leaves) => leaves
         .filter((leaf) => leaf.scrollHeight > leaf.clientHeight + 2)

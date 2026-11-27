@@ -44,7 +44,7 @@ function reviewPageSize(form: HTMLFormElement) {
 function resizeTextarea(target: EventTarget | null) {
   if (!(target instanceof HTMLTextAreaElement)) return
   target.style.height = 'auto'
-  target.style.height = `${target.scrollHeight}px`
+  if (getComputedStyle(target).getPropertyValue('field-sizing') !== 'content') target.style.height = `${target.scrollHeight}px`
 }
 
 export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, createSubmitLabel = 'Save recipe', savedAction, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, reviewSaveContext, reviewReceipt, reviewComparison, comparisonIngredient, comparisonIngredientIndex, supplement }: RecipeFormEditorProps) {
@@ -229,7 +229,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
 
   useLayoutEffect(() => {
     editorScope(formRef.current)?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))
-  }, [state, leaves])
+  }, [state, leaves, visibleIndicesKey])
 
   useLayoutEffect(() => {
     const form = formRef.current

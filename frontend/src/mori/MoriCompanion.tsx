@@ -125,7 +125,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
         const candidate = clamp({ x: next.x - width / 2, y: next.y - MORI_FOOT.y * MORI_ART_SCALE })
         const x = candidate.x + (width - size) / 2
         const artHeight = size * 1.2 + 24
-        const controls = Array.from(paper.querySelectorAll('button, a[href], input, textarea, select, [contenteditable], h1, h2, h3, h4, h5, h6, [role="heading"], [role="alert"], [role="status"], .mm-recipe-artwork, .mm-collection-entry, .recipe-update, .request-state'), (control) => control.getBoundingClientRect())
+        const controls = Array.from(paper.querySelectorAll('button, a[href], input, textarea, select, [contenteditable], h1, h2, h3, h4, h5, h6, [role="heading"], [role="alert"], [role="status"], .field-hint, .mm-recipe-artwork, .mm-collection-entry, .recipe-update, .request-state'), (control) => control.getBoundingClientRect())
           .filter((control) => control.width > 1 && control.height > 1 && control.left < x + size && control.right > x)
         let y = candidate.y
         const minimum = Math.max(rect.top + 8, 8)
