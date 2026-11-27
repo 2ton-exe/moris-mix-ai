@@ -56,7 +56,7 @@ it('shows loading then renders the validated recipe from the API', async () => {
   expect(within(screen.getByRole('region', { name: 'Flavor scores' })).getByText('4 / 5')).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Back home' })).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Back home' }).getAttribute('href')).toBe('/home')
-  expect(screen.getByRole('link', { name: 'Start a private journal' }).getAttribute('href')).toBe('/signup')
+  expect(screen.getByRole('link', { name: 'Create your recipe journal' }).getAttribute('href')).toBe('/signup')
   const pages = screen.getByRole('navigation', { name: 'Recipe reading pages' })
   expect(pages.closest('.mm-pagination-band')?.closest('.mm-journal-page-footer')).toBeTruthy()
   expect(screen.getByRole('navigation', { name: 'Recipe actions' })).toBeTruthy()
