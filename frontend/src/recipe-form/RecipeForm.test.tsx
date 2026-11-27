@@ -56,6 +56,17 @@ it('populates edit mode including multiline notes, rating, quantities and calend
   expect((screen.getByLabelText('Step 1 description') as HTMLTextAreaElement).value).toBe(recipeFormFixture.instructions[0].text)
 })
 
+it('labels the editable unit suggestions and places amount guidance directly below its field', () => {
+  render(<RecipeForm mode="edit" initialValues={recipeFormFixture} />)
+  const unit = screen.getByRole('combobox', { name: 'Ingredient 1 unit' })
+  expect(unit.getAttribute('placeholder')).toBe('Select or type')
+  const description = screen.getByLabelText('Ingredient 1 amount description (optional)')
+  expect(description.getAttribute('placeholder')).toBe('e.g. to taste')
+  expect(description.nextElementSibling?.textContent).toBe('Overrides quantity and unit when provided.')
+  expect(description.getAttribute('aria-describedby')).toBe(description.nextElementSibling?.id)
+  expect(screen.queryByText(/A written amount like/)).toBeNull()
+})
+
 it('defaults missing optional notes to an empty editor', () => {
   render(<RecipeForm mode="edit" initialValues={{ ...editable, notes: undefined }} />)
   expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('')
