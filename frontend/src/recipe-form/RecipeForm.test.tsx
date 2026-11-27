@@ -235,7 +235,7 @@ it('shows field-level quantity errors and preserves all entered values for corre
   render(<RecipeForm mode="edit" initialValues={editable} onSubmit={submit} />)
   fill('Ingredient 1 quantity', 'a few')
   click('Save changes')
-  expect(screen.getByText('Enter a finite number, or leave the quantity blank.')).toBeTruthy()
+  expect(screen.getByText('Enter a positive number, or leave the quantity blank.')).toBeTruthy()
   expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('a few')
   expect(submit).not.toHaveBeenCalled()
 })

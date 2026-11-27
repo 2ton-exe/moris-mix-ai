@@ -398,7 +398,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       const next: Record<string, string> = {}
       for (const issue of result.error.issues) {
         const path = issue.path.join('.')
-        next[path] = path === 'title' ? 'Enter a recipe title.' : path.endsWith('.quantity') ? 'Enter a finite number, or leave the quantity blank.' : path === 'star_rating' ? 'Choose a rating from 1 to 5, or leave it unrated.' : path === 'cooked_at' ? 'Enter a valid calendar date.' : 'Check this value.'
+        next[path] = path === 'title' ? 'Enter a recipe title.' : path.endsWith('.quantity') ? 'Enter a positive number, or leave the quantity blank.' : path === 'star_rating' ? 'Choose a rating from 1 to 5, or leave it unrated.' : path === 'cooked_at' ? 'Enter a valid calendar date.' : 'Check this value.'
       }
       const first = result.error.issues.map((issue) => issue.path.join('.')).find(fieldPathExists)
       showValidationErrors(next, first)
