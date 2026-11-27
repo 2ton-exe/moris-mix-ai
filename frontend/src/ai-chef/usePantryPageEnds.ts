@@ -49,7 +49,7 @@ export function usePantryPageEnds({
     const boardHeader = boardList?.querySelector('.mm-ai-chef__board-header')
     const boardPager = boardList?.querySelector('.mm-ai-chef__board-pages')
     const grid = page?.querySelector('.mm-ai-chef__measure .mm-ai-chef__card-grid')
-    if (!cards || turning || handoff || !page || !paper || !spread || !footer || !heading || !entry || !continuation || !notices || !grid) return
+    if (!cards || turning || handoff || !page || !paper || !spread || !footer || !heading || !continuation || !notices || !grid) return
 
     const measure = () => {
       const paperBounds = paper.getBoundingClientRect()
@@ -65,7 +65,7 @@ export function usePantryPageEnds({
       const contentHeight = bottom - page.getBoundingClientRect().top - paperPadding
         - parseFloat(gridStyle.paddingTop) - parseFloat(gridStyle.paddingBottom) - (noticeHeight ? noticeHeight + pageGap : 0)
       const headingHeight = heading.getBoundingClientRect().height
-      const first = contentHeight - headingHeight - entry.getBoundingClientRect().height - 2 * pageGap
+      const first = contentHeight - headingHeight - (entry?.getBoundingClientRect().height ?? 0) - 2 * pageGap
       const rest = contentHeight - continuation.getBoundingClientRect().height - pageGap - (single ? headingHeight + pageGap : 0)
       const gap = parseFloat(gridStyle.rowGap)
       let ends: number[]

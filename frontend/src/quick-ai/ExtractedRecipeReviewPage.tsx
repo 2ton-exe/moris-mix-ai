@@ -6,6 +6,8 @@ import { useMoriReviewCompletion } from '../mori/MoriCompanionContext'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import { JournalShell } from '../journal/JournalShell'
+import { JOURNAL_SINGLE_LAYOUT_QUERY } from '../journal/pageTurnMotion'
+import { useJournalMedia } from '../journal/useJournalMedia'
 import { journalReturnTo } from '../journal/indexNavigation'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import { RecipeForm } from '../recipe-form/RecipeForm'
@@ -40,13 +42,16 @@ export function ExtractedRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) 
 function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?: SaveRecipeDraft }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const single = useJournalMedia(JOURNAL_SINGLE_LAYOUT_QUERY)
+  const desktop = useJournalMedia('(hover: hover) and (pointer: fine)')
   const { markReviewCompleted } = useMoriReviewCompletion()
   const { user, logout } = useAuth()
   const registerLogoutGuard = useContext(JournalLogoutGuardContext)
   const [initialRead] = useState(() => readQuickAiEntryDraftResult(userId))
   const stored = initialRead.draft
   const [dirty, setDirty] = useState(false)
-  const [consumed, setConsumed] = useState(false)
+  const [savedRecipe, setSavedRecipe] = useState<{ id: string; title: string } | null>(null)
+  const consumed = savedRecipe !== null
   const [storageIssue, setStorageIssue] = useState<ReviewStorageIssue | null>(initialRead.status === 'available' ? null : initialRead.status)
   const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false)
   const [logoutPending, setLogoutPending] = useState(false)
@@ -143,7 +148,7 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
       const reviewKey = moriReviewKeyFromState(location.state)
       if (typeof reviewKey === 'number') markReviewCompleted(reviewKey)
       consumeHandoff()
-      setConsumed(true)
+      setSavedRecipe({ id: confirmation.id, title: draft.title })
     }
     return confirmation
   }
@@ -156,7 +161,19 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
 
   const storageNotice = storageIssue && <ReviewStorageWarning issue={storageIssue} saved={consumed} onRetry={storageIssue === 'handoff-changed' ? undefined : retryStorage} />
   const editorTitle = consumed ? 'Edit saved recipe' : 'Review your recipe'
-  const editorIntro = consumed ? undefined : "Check Mori's suggestions and fill in missing details before saving."
+  const editorIntro = consumed ? undefined : storageIssue === null
+    ? single ? 'Review each named section. Save from the final page.' : 'Review each section. Save on the last page.'
+    : 'Review each named section, then save from the final page. Keep this page open while you review.'
+  const extractionNotice = !consumed && <ExtractionNotice handoff={handoff} draftKeptInTab={storageIssue === null} facing={!single} />
+  const repeatNotes = () => navigate('/app/quick-entry', { state: returnState })
+  const reviewReceipt = desktop && savedRecipe && storageIssue === null && !logoutError && <>
+    <h2 tabIndex={-1}>{savedRecipe.title}</h2>
+    <p role="status">Recipe saved.</p>
+    <div className="actions">
+      <Link className="button button-primary" to={'/app/recipes/' + encodeURIComponent(savedRecipe.id)}>Open saved recipe</Link>
+      <button type="button" className="button button-secondary" onClick={repeatNotes}>Use these notes again</button>
+    </div>
+  </>
   const pageNotice = <>
     {storageNotice}
     {logoutError && <p className="field-error" role="alert">{logoutError}</p>}
@@ -185,12 +202,14 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
       onSubmit={submit}
       onDirtyChange={setDirty}
       onEditorStateChange={updateStoredReviewDraft}
-      cancelLabel="Back to Mori notes"
-      onCancel={() => navigate('/app/quick-entry', { state: returnState })}
+      cancelLabel={consumed && !dirty && storageIssue === null ? 'Use these notes again' : 'Back to Mori notes'}
+      onCancel={repeatNotes}
+      reviewReceipt={reviewReceipt}
       notice={pageNotice}
-      supplement={<ExtractionNotice handoff={handoff} saved={consumed} />}
-      renderFrame={(content) => <RecipeEditorFrame mode="create" connected showBack={false}
-        headingTitle={editorTitle} headingIntro={editorIntro}
+      supplement={single ? extractionNotice : undefined}
+      renderFrame={(content, _initialDesktopReview, showingReceipt) => <RecipeEditorFrame mode="create" connected showBack={false}
+        headingTitle={showingReceipt ? 'Your recipe is saved.' : editorTitle} headingIntro={editorIntro}
+        facingPageContent={!single && extractionNotice}
         navigationConfirmation={{ ...navigationConfirmation, discardChanges: discardAndLeave }}>{content}</RecipeEditorFrame>} />
   </>
 }
@@ -209,44 +228,66 @@ function ReviewStorageWarning({ issue, saved, onRetry }: { issue: ReviewStorageI
   </div>
 }
 
-function ExtractionNotice({ handoff, saved }: { handoff: NonNullable<ReturnType<typeof readQuickAiEntryDraftResult>['draft']['handoff']>; saved: boolean }) {
+function ExtractionNotice({ handoff, draftKeptInTab, facing }: { handoff: NonNullable<ReturnType<typeof readQuickAiEntryDraftResult>['draft']['handoff']>; draftKeptInTab: boolean; facing: boolean }) {
   const flavorScores = handoff.recipe.flavor_scores
   const words = (value: string) => value.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu)?.join(' ') ?? ''
   const source = ` ${words(handoff.sourceNotes)} `
   const ingredientsToCompare = [...new Set(handoff.recipe.ingredients.map(({ name }) => name))]
     .filter((name) => words(name) && !source.includes(` ${words(name)} `))
+  const excerpt = handoff.sourceNotes.split('\n', 5).join('\n').slice(0, 240).trimEnd()
+  const hasMore = excerpt.length < handoff.sourceNotes.trimEnd().length
+  const warning = ingredientsToCompare.length > 0 && <p>Check Mori’s wording for <strong>{ingredientsToCompare[0]}</strong> against your notes.</p>
+  const storageHelp = <p>{draftKeptInTab ? 'Return to this tab with the same account to keep reviewing.' : 'Keep this page open while you review. Reloading or closing it may erase recent edits.'} If the draft is missing, open Quick AI Entry and organize your notes again. Save recipe adds the reviewed recipe to My recipes.</p>
+  const flavors = flavorScores && <>
+    <p>Flavor estimates are preview only.</p>
+    <dl>{Object.entries(flavorScores).map(([flavor, score]) => <div key={flavor}><dt>{flavor}</dt><dd>{score} / 5</dd></div>)}</dl>
+  </>
+  if (facing) return <section className="mm-extraction-notes mm-extraction-notes--facing" aria-label="Mori's extraction notes">
+    {warning}
+    <div className="mm-extraction-notes__references">
+      <details>
+        <summary>Original cooking notes</summary>
+        <blockquote tabIndex={0}>{handoff.sourceNotes}</blockquote>
+      </details>
+      <details>
+        <summary>Draft details</summary>
+        {storageHelp}
+        {flavorScores && <><h3>Flavor estimates</h3>{flavors}</>}
+      </details>
+    </div>
+  </section>
   return <section className="mm-extraction-notes" aria-label="Mori's extraction notes">
-    {!saved && ingredientsToCompare.length > 0 && <p><strong>Check against your notes</strong><br />These ingredient names use different wording: {ingredientsToCompare.join(', ')}.</p>}
+    <h2>Original cooking notes</h2>
+    {warning}
+    <blockquote>{excerpt}{hasMore && '…'}</blockquote>
+    {hasMore && <details>
+      <summary>Read full cooking notes</summary>
+      <blockquote tabIndex={0}>{handoff.sourceNotes}</blockquote>
+    </details>}
     <details>
-      <summary>Original cooking notes</summary>
-      <blockquote>{handoff.sourceNotes}</blockquote>
+      <summary>Where is my draft kept?</summary>
+      {storageHelp}
     </details>
     {flavorScores && <details>
       <summary>Flavor estimates</summary>
-      <p>Flavor estimates are preview only.</p>
-      <dl>{Object.entries(flavorScores).map(([flavor, score]) => <div key={flavor}><dt>{flavor}</dt><dd>{score} / 5</dd></div>)}</dl>
+      {flavors}
     </details>}
   </section>
 }
 
 function ReviewUnavailable({ userEmail, state, storageStatus, message }: { userEmail?: string; state: { journalReturn: string }; storageStatus: QuickAiDraftReadStatus; message?: string }) {
-  const storageMessage = storageStatus === 'unavailable'
-    ? 'Your browser could not access session storage, so this extraction could not be restored. Return to Quick AI Entry and keep your notes open while you work.'
-    : storageStatus === 'read-failed'
-      ? 'Your browser could not read the saved session draft. Return to Quick AI Entry and recover or re-enter your source notes before leaving.'
-      : undefined
+  const storageMessage = storageStatus === 'unavailable' || storageStatus === 'read-failed'
+    ? 'This browser could not restore the saved draft. Open Quick AI Entry to check your notes.'
+    : undefined
   return <JournalShell mode="writing" account={<div className="journal-account"><span>{userEmail}</span></div>} pageClassName="mm-journal-editor">
     <JournalFacingPage className="mm-facing-content--editor">
-      <nav className="mm-recipe-detail__back" aria-label="Sheet navigation"><Link to="/app/quick-entry" state={state}>← Back to Mori notes</Link></nav>
       <header className="mm-recipe-editor-heading">
-        <div>
-          <p className="mm-recipe-index__eyebrow">AI recipe preview</p>
-          <h1 tabIndex={-1}>Nothing is waiting to be reviewed</h1>
-          <p className="intro">{message ?? (storageMessage ? 'This extraction could not be restored from this browser session.' : 'This unsaved extraction is missing or could not be prepared. Return to Quick AI Entry to restore your notes or organize them again.')}</p>
-        </div>
+        <h1 tabIndex={-1}>No recipe draft to review</h1>
+        {storageMessage
+          ? <p role="alert" className="mm-quick-ai__storage-warning">{storageMessage}</p>
+          : <p className="intro">{message ?? 'Organize your notes in Quick AI Entry to create a draft.'}</p>}
+        <Link className="button button-primary" to="/app/quick-entry" state={state}>Open Quick AI Entry</Link>
       </header>
-      {storageMessage && <p role="alert" className="mm-quick-ai__storage-warning">{storageMessage}</p>}
-      <Link className="button button-primary" to="/app/quick-entry" state={state}>Open Quick AI Entry</Link>
     </JournalFacingPage>
   </JournalShell>
 }

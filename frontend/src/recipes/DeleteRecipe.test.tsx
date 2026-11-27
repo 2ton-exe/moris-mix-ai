@@ -14,6 +14,7 @@ import JournalPage from '../pages/JournalPage'
 import RecipeDashboardPage from '../pages/RecipeDashboardPage'
 import RecipeDetailPage from '../pages/RecipeDetailPage'
 import { RecipeQueryProvider } from './RecipeQueryProvider'
+import { RecipeIntegrationUnavailable } from './source'
 import { recipeKeys } from './queryOptions'
 import { initialDiscoveryCriteria } from './discoveryTypes'
 import type { RecipeRequest, RecipeSource, RecipeSummary } from './types'
@@ -387,6 +388,18 @@ it('shows an unavailable state and makes no request when a delete adapter is not
   expect(screen.getByRole('status').textContent).toContain('Recipe deletion is not connected yet.')
   expect(screen.queryByRole('alertdialog')).toBeNull()
   expect(deleteHandler).not.toHaveBeenCalled()
+})
+
+it('offers the public sample recipe when a saved recipe cannot be loaded because the journal is unavailable', async () => {
+  const unavailableSource: RecipeSource = {
+    mode: 'unavailable',
+    list: vi.fn().mockRejectedValue(new RecipeIntegrationUnavailable()),
+    detail: vi.fn().mockRejectedValue(new RecipeIntegrationUnavailable()),
+  }
+  renderDetail(authState(), unavailableSource)
+  const sample = await screen.findByRole('link', { name: 'Explore the sample recipe' })
+  expect(sample.getAttribute('href')).toBe('/demo-recipe')
+  expect(screen.getByRole('heading', { name: 'Recipe unavailable' })).toBeTruthy()
 })
 
 it('traps keyboard focus, closes on Escape while idle, and restores focus', async () => {

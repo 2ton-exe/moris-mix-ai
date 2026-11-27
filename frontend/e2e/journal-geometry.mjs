@@ -23,31 +23,20 @@ export async function settleJournalLayout(page, reference = false) {
   await page.evaluate(() => new Promise((resolve) => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))))
 }
 
-export async function holdSpatialPaperGrip(layer) {
+export async function holdPaperTurn(layer) {
   return layer.evaluate((node) => {
-    const actor = node.querySelector('[data-mori-paper-actor]')
-    if (!actor || actor.hidden) throw new Error('The desktop turn has no visible paper actor')
-    const sample = (progress) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
-    const attached = []
-    for (let index = 0; index < 200; index++) {
-      const progress = index / 200
-      sample(progress)
-      if (actor.hasAttribute('data-mori-gripping') && Number(node.dataset.travel) > 0) attached.push(progress)
-    }
-    const progress = attached[Math.floor(attached.length / 2)]
-    if (progress === undefined) throw new Error('The desktop turn never grips the moving paper')
-    sample(progress)
-    const hand = actor.querySelector('[data-mori-hand]')
-    const point = new globalThis.DOMPoint(hand.cx.baseVal.value, hand.cy.baseVal.value).matrixTransform(hand.getScreenCTM())
-    const corner = node.querySelector('[data-page-corner]').getBoundingClientRect()
-    return { direction: node.dataset.direction, separation: Math.hypot(point.x - corner.x, point.y - corner.y), time: progress * Number(node.dataset.duration) }
+    if (node.querySelector('[data-mori-paper-actor]')) throw new Error('Page turns must be independent of Mori')
+    node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: .5 }))
+    return { direction: node.dataset.direction, time: Number(node.dataset.duration) / 2 }
   })
 }
 
 /** Check journal proportions, page layers, and the exposed bookmark controls. */
-export async function assertJournalGeometry(page, label) {
+export async function assertJournalGeometry(page, label, { hasCurrentTab = true } = {}) {
   await settleJournalLayout(page)
   await page.evaluate(() => globalThis.scrollTo({ top: 0, behavior: 'instant' }))
+  await page.locator('.mm-bookmarks .mm-bookmark').evaluateAll((tabs) =>
+    Promise.allSettled(tabs.flatMap((tab) => tab.getAnimations().map((animation) => animation.finished))))
   const geometry = await page.evaluate(() => {
     const rect = (element) => element.getBoundingClientRect().toJSON()
     const book = globalThis.document.querySelector('.mm-journal-book')
@@ -114,11 +103,13 @@ export async function assertJournalGeometry(page, label) {
   assert.ok(tabs.length >= 3, `${label}: journal tabs missing`)
   assert.ok(tabs.every((tab) => tab.right <= geometry.paper.right - geometry.pageRadius + 1), `${label}: tabs clear the rounded top-right paper corner`)
   const activeTabs = tabs.filter((tab) => tab.current)
-  assert.equal(activeTabs.length, 1, `${label}: exactly one route-derived tab is current`)
-  assert.ok(Math.abs(activeTabs[0].bottom - right.y) <= 1, `${label}: active tab detaches from the right paper sheet`)
-  assert.equal(activeTabs[0].backgroundColor, geometry.paperBackgroundColor, `${label}: active tab uses the page paper color`)
-  assert.equal(activeTabs[0].backgroundImage.includes('data:image/svg+xml'), geometry.paperBackgroundImage.includes('data:image/svg+xml'), `${label}: active tab uses the page paper texture`)
-  assert.equal(activeTabs[0].zIndex, '2', `${label}: active tab layers above the sheet edge`)
+  assert.equal(activeTabs.length, hasCurrentTab ? 1 : 0, `${label}: expected current route tabs`)
+  if (hasCurrentTab) {
+    assert.ok(Math.abs(activeTabs[0].bottom - right.y) <= 1, `${label}: active tab detaches from the right paper sheet`)
+    assert.equal(activeTabs[0].backgroundColor, geometry.paperBackgroundColor, `${label}: active tab uses the page paper color`)
+    assert.equal(activeTabs[0].backgroundImage.includes('data:image/svg+xml'), geometry.paperBackgroundImage.includes('data:image/svg+xml'), `${label}: active tab uses the page paper texture`)
+    assert.equal(activeTabs[0].zIndex, '2', `${label}: active tab layers above the sheet edge`)
+  }
   for (const tab of tabs) {
     assert.ok(tab.bottom <= right.bottom + 1 && tab.left >= right.left && tab.right <= right.right, `${label}: tab overhangs the right page: ${tab.label}`)
     assert.ok(tab.x >= 0 && tab.right <= viewport.width && tab.y >= 0, `${label}: tab clipped: ${tab.label}`)

@@ -94,18 +94,19 @@ it('reserves a card grid while loading, then renders collection metadata and det
   await act(async () => request.resolve(previewRecipes))
   const link = await screen.findByRole('link', { name: /Ginger and garlic rice/ })
   expect(link.getAttribute('href')).toBe(`/app/recipes/${previewRecipes[0].id}`)
-  expect(within(link).getByText('4 / 5')).toBeTruthy()
-  expect(within(link).getByText('Oct 18, 2026')).toBeTruthy()
-  expect(within(link).getByRole('img', { name: /no recipe photo is available/ })).toBeTruthy()
-  expect(link.querySelector('img')).toBeNull()
+  const card = link.closest('li')!
+  expect(within(card).getByText('4 / 5')).toBeTruthy()
+  expect(within(card).getByText('Oct 18, 2026')).toBeTruthy()
+  expect(within(card).getByRole('img', { name: /no recipe photo is available/ })).toBeTruthy()
+  expect(card.querySelector('img')).toBeNull()
   const other = screen.getByRole('link', { name: /Lemon chickpea salad/ })
-  expect(within(other).queryByText('Rating')).toBeNull()
+  expect(within(other.closest('li')!).queryByText('Rating')).toBeNull()
 })
 
-it.each([{ leaf: 1, entry: 0 }, { leaf: 2, entry: 3 }])('preserves collection return parameters and entry $entry without URLSearchParams.size', async ({ leaf, entry }) => {
+it.each([{ leaf: 1, entry: 0 }, { leaf: 2, entry: 3 }, { leaf: 4, entry: 8 }])('preserves collection return parameters and entry $entry without URLSearchParams.size', async ({ leaf, entry }) => {
   const size = vi.spyOn(URLSearchParams.prototype, 'size', 'get').mockReturnValue(undefined as unknown as number)
   try {
-    const entries = Array.from({ length: 6 }, (_, index) => ({ ...previewRecipes[0], id: `compat-${index}`, title: `Compatible recipe ${index + 1}` }))
+    const entries = Array.from({ length: 10 }, (_, index) => ({ ...previewRecipes[0], id: `compat-${index}`, title: `Compatible recipe ${index + 1}` }))
     vi.mocked(source.list).mockResolvedValue(entries)
     vi.mocked(source.detail).mockImplementation(async (id) => entries.find((recipe) => recipe.id === id)!)
     const search = `view=collection&leaf=${leaf}&entry=${entry}&keep=one&keep=two`
@@ -122,7 +123,7 @@ it.each([{ leaf: 1, entry: 0 }, { leaf: 2, entry: 3 }])('preserves collection re
   }
 })
 
-it('opens the collection against the inside cover, then fills both pages through server cursors', async () => {
+it('keeps the bookplate as front matter and browses both leaves through server cursors', async () => {
   const entries = Array.from({ length: 6 }, (_, i) => ({ ...previewRecipes[i % 2], id: `entry-${i}`, title: `Saved recipe ${i + 1}` }))
   const fetchPage = vi.fn().mockImplementation(({ continuation }) => Promise.resolve(continuation === null
     ? { recipes: entries.slice(0, 2), nextPage: 'opaque-next' }
@@ -132,21 +133,21 @@ it('opens the collection against the inside cover, then fills both pages through
   render(tree('/app/recipes'))
   const first = await screen.findByRole('link', { name: 'Open recipe Saved recipe 1' })
   expect(first.closest('.mm-journal-page')).toBeTruthy()
-  expect(document.querySelectorAll('.mm-journal-flyleaf [data-recipe-id]')).toHaveLength(0)
   expect(document.querySelector('.mm-bookplate')?.textContent).toContain('This journal belongs to')
-  expect(fetchPage.mock.calls.filter(([request]) => !request.signal.aborted)).toHaveLength(1)
+  expect(document.querySelectorAll('.mm-journal-flyleaf [data-recipe-id]')).toHaveLength(0)
+  expect(document.querySelectorAll('.mm-journal-page [data-recipe-id]')).toHaveLength(2)
   fireEvent.click(screen.getByRole('link', { name: 'Next page →' }))
   await screen.findByRole('link', { name: 'Open recipe Saved recipe 6' })
   expect(fetchPage.mock.calls.at(-1)![0].continuation).toBe('opaque-next')
-  expect(screen.getByTestId('test-location').textContent).toBe('/app/recipes')
   expect(document.querySelector('.mm-journal-spread')?.hasAttribute('inert')).toBe(true)
-  expect(document.querySelectorAll('.mm-journal-spread .mm-journal-flyleaf [data-recipe-id]')).toHaveLength(2)
-  expect(document.querySelectorAll('.mm-journal-spread .mm-journal-page [data-recipe-id]')).toHaveLength(2)
   await finishPageTurn()
   await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')).toBeNull())
-  expect(screen.getByTestId('test-location').textContent).toBe('/app/recipes?leaf=2&entry=2')
-  const selected = screen.getByRole('link', { name: 'Open recipe Saved recipe 4' })
-  fireEvent.click(selected)
+  const location = new URL(screen.getByTestId('test-location').textContent ?? '', 'https://mori.test')
+  expect(location.searchParams.get('entry')).toBe('2')
+  expect(location.searchParams.get('leaf')).toBe('2')
+  expect(document.querySelectorAll('.mm-journal-flyleaf [data-recipe-id]')).toHaveLength(2)
+  expect(document.querySelectorAll('.mm-journal-page [data-recipe-id]')).toHaveLength(2)
+  fireEvent.click(screen.getByRole('link', { name: 'Open recipe Saved recipe 4' }))
   await screen.findByRole('heading', { name: 'Saved recipe 4', level: 1 })
   fireEvent.click(screen.getByRole('link', { name: 'Back to recipes' }))
   await screen.findByRole('link', { name: 'Open recipe Saved recipe 4' })
@@ -174,7 +175,7 @@ it('restores an index anchor through unloaded cursors without requiring an exist
   })
   source.discovery = { searchModes: ['title'], sorts: ['newest', 'rating'], filters: [], page: fetchPage }
   render(tree('/app/recipes?view=index&q=rice&sort=rating&entry=5'))
-  const card = await screen.findByRole('link', { name: 'Open recipe Restored recipe 6' })
+  const card = await screen.findByRole('link', { name: 'Open recipe Restored recipe 6, entry 6' })
   await waitFor(() => expect(document.activeElement).toBe(card))
   expect(fetchPage.mock.calls.filter(([request]) => !request.signal.aborted).map(([request]) => request.continuation)).toEqual([null, 'next-batch', 'last-batch'])
   expect(fetchPage.mock.calls.every(([request]) => request.criteria.search === 'rice' && request.criteria.sort === 'rating')).toBe(true)
@@ -194,15 +195,15 @@ it('shows a physically empty journal and directs the cook to add a real first sc
 
 it('keeps loaded cards visible during refresh and replaces them with fresh server results', async () => {
   render(tree('/app/recipes'))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })
   const refresh = deferred<RecipeSummary[]>()
   vi.mocked(source.list).mockReturnValue(refresh.promise)
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh recipes' }))
-  expect(screen.getByRole('heading', { name: previewRecipes[0].title })).toBeTruthy()
-  expect((await screen.findByRole('button', { name: 'Refreshing…' }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(screen.getAllByRole('button', { name: 'Refresh recipes' })[0])
+  expect(screen.getByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })).toBeTruthy()
+  expect(((await screen.findAllByRole('button', { name: 'Refreshing…' }))[0] as HTMLButtonElement).disabled).toBe(true)
   await act(async () => refresh.resolve([{ id: 'new', title: 'A newly saved recipe' }]))
-  await screen.findByRole('heading', { name: 'A newly saved recipe' })
-  expect(screen.queryByRole('heading', { name: previewRecipes[0].title })).toBeNull()
+  await screen.findByRole('link', { name: 'Open recipe A newly saved recipe' })
+  expect(screen.queryByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })).toBeNull()
 })
 
 it('shows safe errors and recovers through manual retry', async () => {
@@ -212,7 +213,7 @@ it('shows safe errors and recovers through manual retry', async () => {
   expect(document.body.textContent).not.toContain('private backend detail')
   vi.mocked(source.list).mockResolvedValue(previewRecipes)
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })
 })
 
 it.each([
@@ -244,31 +245,42 @@ it.each([
   vi.mocked(source.detail).mockResolvedValue(data as unknown as RecipeDetail)
   render(tree(`/app/recipes/${previewRecipes[0].id}`))
   expect((await screen.findByRole('alert')).textContent).toContain('Could not load this recipe')
-  expect(screen.getByRole('link', { name: /Back to recipes/ })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Browse your recipes' })).toBeTruthy()
 })
 
 it.each([401, 403])('does not retry a collection HTTP %s or show cached recipes after access is denied', async (status) => {
   render(tree('/app'))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })
   const calls = vi.mocked(source.list).mock.calls.length
   expect(vi.mocked(source.list).mock.calls.filter(([request]) => !request.signal.aborted)).toHaveLength(1)
   vi.mocked(source.list).mockRejectedValue(new HttpError('http', 'private detail', status))
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh recipes' }))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Refresh recipes' })[0])
   expect((await screen.findByRole('alert')).textContent).toContain(status === 401 ? 'session could not be verified' : 'permission')
-  expect(screen.queryByRole('heading', { name: previewRecipes[0].title })).toBeNull()
+  expect(screen.queryByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
   expect(vi.mocked(source.list).mock.calls.length).toBe(calls + 1)
   expect(screen.getByRole('button', { name: 'Log out' })).toBeTruthy()
 })
 
+it('shows retry without stacking an empty-state card after an empty collection refresh fails', async () => {
+  vi.mocked(source.list).mockResolvedValue([])
+  render(tree('/app/recipes'))
+  await screen.findByRole('heading', { name: 'A fresh page for your next favorite.' })
+  vi.mocked(source.list).mockRejectedValue(new Error('private error'))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Refresh recipes' })[0])
+  await screen.findByRole('alert')
+  expect(screen.queryByRole('heading', { name: 'A fresh page for your next favorite.' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
+})
+
 it('labels stale data when a background refresh fails', async () => {
   render(tree('/app'))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })
   vi.mocked(source.list).mockRejectedValue(new Error('private error'))
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh recipes' }))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Refresh recipes' })[0])
   await screen.findByRole('alert')
   expect(screen.getByText(/Showing your last loaded collection/)).toBeTruthy()
-  expect(screen.getByRole('heading', { name: previewRecipes[0].title })).toBeTruthy()
+  expect(screen.getByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })).toBeTruthy()
 })
 
 it('loads a detail by route ID, orders steps without mutating data, and navigates back', async () => {
@@ -304,8 +316,9 @@ it('shows a detail loading state and handles missing metadata and empty content'
   expect(screen.getByRole('status').textContent).toContain('Loading recipe')
   await act(async () => request.resolve({ id: 'minimal', title: 'A recipe to finish later', ingredients: [], instructions: [] }))
   await screen.findByRole('heading', { name: 'A recipe to finish later' })
-  expect(screen.getByText('No ingredients listed.')).toBeTruthy()
-  expect(screen.getByText('No cooking steps listed.')).toBeTruthy()
+  expect(screen.getByText(/No ingredients listed\./)).toBeTruthy()
+  expect(screen.getByText(/No cooking steps listed\./)).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Add cooking steps' }).getAttribute('href')).toBe('/app/recipes/minimal/edit?section=method')
   expect(screen.queryByText('Rating')).toBeNull()
   expect(screen.queryByText('Cooked')).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Flavor notes' })).toBeNull()
@@ -319,7 +332,9 @@ it.each([
   expect((await screen.findByRole('alert')).textContent).toContain(message)
   expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
   expect(document.body.textContent).not.toContain('private detail')
-  expect(screen.getByRole('link', { name: /Back to recipes/ })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Browse your recipes' }).getAttribute('href')).toBe('/app/recipes')
+  expect(screen.getByRole('link', { name: 'Create a recipe' }).getAttribute('href')).toBe('/app/recipes/new')
+  expect(screen.getByRole('navigation', { name: 'Recipe recovery' })).toBeTruthy()
 })
 
 it('recovers a failed detail request with retry', async () => {
@@ -328,7 +343,7 @@ it('recovers a failed detail request with retry', async () => {
   await screen.findByRole('alert')
   vi.mocked(source.detail).mockResolvedValue(previewRecipes[0])
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('heading', { name: previewRecipes[0].title, level: 1 })
 })
 
 it('retries a server failure twice, then shows a safe error with manual recovery', async () => {
@@ -340,16 +355,16 @@ it('retries a server failure twice, then shows a safe error with manual recovery
   expect(document.body.textContent).not.toContain('private upstream detail')
   vi.mocked(source.list).mockResolvedValue(previewRecipes)
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })
 })
 
 it('removes a cached detail after the server reports that it is no longer available', async () => {
   render(tree(`/app/recipes/${previewRecipes[0].id}`))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('heading', { name: previewRecipes[0].title, level: 1 })
   vi.mocked(source.detail).mockRejectedValue(new HttpError('http', 'private error', 404))
   await act(async () => currentClient.invalidateQueries({ queryKey: recipeKeys.detail('cook-a', previewRecipes[0].id) }))
   await screen.findByRole('alert')
-  expect(screen.queryByRole('heading', { name: previewRecipes[0].title })).toBeNull()
+  expect(screen.queryByRole('heading', { name: previewRecipes[0].title, level: 1 })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Ingredients' })).toBeNull()
 })
 
@@ -357,7 +372,7 @@ it('uses the authenticated production source when configured and never falls bac
   source = defaultRecipeSource
   const fetchSpy = vi.spyOn(globalThis, 'fetch')
   render(tree('/app'))
-  expect(screen.queryByRole('heading', { name: previewRecipes[0].title })).toBeNull()
+  expect(screen.queryByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })).toBeNull()
   const configured = !!import.meta.env.VITE_SUPABASE_URL?.trim() &&
     !!(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() || import.meta.env.VITE_SUPABASE_ANON_KEY?.trim())
   expect(defaultRecipeSource.mode).toBe(configured ? 'live' : 'unavailable')
@@ -375,7 +390,7 @@ it('uses the authenticated production source when configured and never falls bac
 it('clearly labels the opt-in preview on both screens', async () => {
   source = previewRecipeSource
   render(tree('/app'))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })
   expect(screen.getByRole('note').textContent).toContain('not your saved collection')
   fireEvent.click(screen.getByRole('link', { name: /Ginger and garlic rice/ }))
   await screen.findByRole('heading', { name: previewRecipes[0].title, level: 1 })
@@ -384,7 +399,7 @@ it('clearly labels the opt-in preview on both screens', async () => {
 
 it('deduplicates simultaneous list consumers and reuses fresh cache when returning from detail', async () => {
   render(tree('/app', authState(), true))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })
   // Strict Mode may abort an initial mount; both active consumers share one key.
   const calls = vi.mocked(source.list).mock.calls.length
   expect(vi.mocked(source.list).mock.calls.filter(([request]) => !request.signal.aborted)).toHaveLength(1)
@@ -405,28 +420,28 @@ it('isolates users immediately, aborts old requests, clears the old cache, and r
   // Seed both kinds of cached private data before switching accounts.
   act(() => oldClient.setQueryData(recipeKeys.detail('cook-a', 'private'), previewRecipes[0]))
   view.rerender(tree('/app', authState('cook-b')))
-  expect(screen.queryByRole('heading', { name: previewRecipes[0].title })).toBeNull()
-  await screen.findByRole('heading', { name: 'Account B recipe' })
+  expect(screen.queryByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })).toBeNull()
+  await screen.findByRole('link', { name: 'Open recipe Account B recipe' })
   expect(currentClient).not.toBe(oldClient)
   expect(oldClient.getQueryCache().getAll()).toHaveLength(0)
   expect(signal.aborted).toBe(true)
   await act(async () => late.resolve(previewRecipes))
-  expect(screen.queryByRole('heading', { name: previewRecipes[0].title })).toBeNull()
+  expect(screen.queryByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })).toBeNull()
   expect(currentClient.getQueryData(recipeKeys.lists('cook-a'))).toBeUndefined()
   expect(oldClient.getQueryCache().getAll()).toHaveLength(0)
 })
 
 it('clears list and detail data on logout and fetches again even for the same user', async () => {
   const view = render(tree('/app'))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })
   const oldClient = currentClient
   act(() => oldClient.setQueryData(recipeKeys.detail('cook-a', 'private'), previewRecipes[0]))
   view.rerender(tree('/app', authState(null)))
-  expect(screen.queryByRole('heading', { name: previewRecipes[0].title })).toBeNull()
+  expect(screen.queryByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })).toBeNull()
   expect(oldClient.getQueryCache().getAll()).toHaveLength(0)
   const calls = vi.mocked(source.list).mock.calls.length
   view.rerender(tree('/app', authState()))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })
   expect(vi.mocked(source.list).mock.calls.length).toBeGreaterThan(calls)
 })
 
@@ -444,13 +459,13 @@ it('ignores a late detail response after switching accounts on the same recipe r
   await act(async () => late.resolve(previewRecipes[0]))
   expect(signal.aborted).toBe(true)
   expect(oldClient.getQueryCache().getAll()).toHaveLength(0)
-  expect(screen.queryByRole('heading', { name: previewRecipes[0].title })).toBeNull()
+  expect(screen.queryByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })).toBeNull()
   expect(screen.getByRole('heading', { name: 'Account B detail' })).toBeTruthy()
 })
 
 it('preserves the account cache when the same user refreshes their token', async () => {
   const view = render(tree('/app'))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })
   const client = currentClient
   const calls = vi.mocked(source.list).mock.calls.length
   view.rerender(tree('/app', authState('cook-a', 'refreshed-token')))
@@ -460,10 +475,10 @@ it('preserves the account cache when the same user refreshes their token', async
 
 it('supports future mutation invalidation through the account prefix', async () => {
   render(tree('/app'))
-  await screen.findByRole('heading', { name: previewRecipes[0].title })
+  await screen.findByRole('link', { name: `Open recipe ${previewRecipes[0].title}` })
   vi.mocked(source.list).mockResolvedValue([{ id: 'new', title: 'After invalidation' }])
   await act(async () => currentClient.invalidateQueries({ queryKey: recipeKeys.all('cook-a') }))
-  await waitFor(() => expect(screen.getByRole('heading', { name: 'After invalidation' })).toBeTruthy())
+  await waitFor(() => expect(screen.getByRole('link', { name: 'Open recipe After invalidation' })).toBeTruthy())
 })
 
 

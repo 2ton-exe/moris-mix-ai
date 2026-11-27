@@ -10,7 +10,7 @@ import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
-import { holdSpatialPaperGrip } from './journal-geometry.mjs'
+import { holdPaperTurn } from './journal-geometry.mjs'
 
 const apiOrigin = 'https://fe07.example.test'
 const userId = '11111111-1111-4111-8111-111111111111'
@@ -45,7 +45,7 @@ try {
     page.on('pageerror', (error) => pageErrors.push(error.message))
     const recipes = Array.from({ length: 25 }, (_, index) => ({
       id: `33333333-3333-4333-8333-${String(index).padStart(12, '0')}`,
-      user_id: userId, title: index === 9 ? 'A long title for the cookbook index '.repeat(5).trim() : `Browser test recipe ${index + 1}`,
+      user_id: userId, title: index === 0 || index === 24 ? 'Family tomato rice' : index === 9 ? 'A long title for the cookbook index '.repeat(5).trim() : `Browser test recipe ${index + 1}`,
       star_rating: 4, cooked_at: '2026-10-25',
     }))
     await context.route('**/*', async (route) => {
@@ -68,7 +68,7 @@ try {
       const searchMode = url.searchParams.get('searchMode') ?? 'both'
       if (search) {
         if (search === 'slow') await new Promise((resolve) => globalThis.setTimeout(resolve, 650))
-        if (search === 'missing') return route.fulfill({ json: { recipes: [], has_more: false, next_cursor: null } })
+        if (search === 'missing' || (search === 'basil' && searchMode === 'title')) return route.fulfill({ json: { recipes: [], has_more: false, next_cursor: null } })
         if (search === 'retry') {
           const attempts = searchFailures.get(search) ?? 0
           searchFailures.set(search, attempts + 1)
@@ -93,8 +93,17 @@ try {
     await page.goto(`${origin}app?view=index`)
     await page.getByRole('heading', { name: 'Saved recipes (24)' }).waitFor()
     await assertJournalSemantics(page, `${width}px discovery`)
+    if (width < 1100) {
+      await page.getByRole('link', { name: 'Browse saved recipes' }).click()
+      const collection = page.getByRole('region', { name: 'Recipe collection page 1' })
+      await expect(collection).toBeVisible()
+      assert.equal(await collection.getAttribute('aria-keyshortcuts'), null, `No slash shortcut at ${width}px`)
+      await expect(page.locator('.mm-search-shortcut-hint')).toHaveCount(0)
+      await page.getByRole('link', { name: 'Search saved recipes' }).first().click()
+      await expect(page.getByRole('searchbox', { name: 'Search recipes' })).toBeFocused()
+    }
     assert.equal(await page.getByRole('searchbox', { name: 'Search recipes' }).isDisabled(), false)
-    assert.equal(await page.getByRole('option', { name: 'Rating' }).evaluate((element) => element.disabled), false)
+    assert.equal(await page.getByRole('option', { name: 'Highest rated' }).evaluate((element) => element.disabled), false)
     await page.getByRole('combobox', { name: 'Sort recipes' }).focus()
     assert.equal(await page.getByRole('combobox', { name: 'Sort recipes' }).evaluate((element) => element === globalThis.document.activeElement), true)
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Overflow at ${width}px`)
@@ -107,31 +116,32 @@ try {
     const indexResults = page.getByRole('region', { name: 'Recipe index results' })
     const cards = indexResults.getByRole('link', { name: /^Open recipe/ })
     const desktop = width === 1440
+    assert.ok(await cards.count() < 24)
     if (desktop) {
-      assert.ok(await cards.count() < 24)
       assert.ok(await page.evaluate(() => globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 2), 'The index fits the desktop viewport')
     }
-    else assert.equal(await cards.count(), 24)
     await page.keyboard.press('Enter')
     await page.getByRole('heading', { name: 'Saved recipes (25)' }).waitFor()
-    if (desktop) {
+    {
       const next = page.getByRole('link', { name: 'Next page' })
       const previous = page.getByRole('link', { name: 'Previous page' })
       const layer = page.locator('[data-journal-page-turn="true"]')
       async function sampleTurn(direction) {
         await expect(layer).toHaveAttribute('data-phase', 'animating')
-        const grip = await holdSpatialPaperGrip(layer)
+        const grip = await holdPaperTurn(layer)
         assert.equal(grip.direction, direction)
-        assert.ok(grip.separation <= 2, `${direction} turn separates Mori's mitt from the sheet by ${grip.separation}px`)
         await page.screenshot({ path: path.join(outputDir, `1440-turn-${direction}.png`) })
         await layer.evaluate((element) => element.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
         await expect(layer).toHaveCount(0)
       }
-      await next.click()
-      await sampleTurn('forward')
-      await previous.click()
-      await sampleTurn('backward')
+      if (desktop) {
+        await next.click()
+        await sampleTurn('forward')
+        await previous.click()
+        await sampleTurn('backward')
+      }
       const seen = new Set()
+      const matchingNames = []
       while (true) {
         const dimensions = await indexResults.evaluate((element) => ({ used: element.scrollHeight, size: element.clientHeight }))
         assert.ok(dimensions.used <= dimensions.size + 2, `Index leaf overflows: ${JSON.stringify(dimensions)}`)
@@ -139,6 +149,7 @@ try {
           assert.ok(!seen.has(href), `Repeated card ${href}`)
           seen.add(href)
         }
+        matchingNames.push(...await cards.filter({ hasText: 'Family tomato rice' }).evaluateAll((links) => links.map((link) => link.getAttribute('aria-label'))))
         if (!await next.count()) break
         const target = await next.getAttribute('href')
         await next.click()
@@ -147,14 +158,16 @@ try {
       }
       await page.getByText('End of results.', { exact: true }).waitFor()
       assert.equal(seen.size, 25)
-      await page.goBack()
-      await expect(next).toBeVisible()
-      await page.goForward()
-      await expect(page.getByText('End of results.')).toBeVisible()
-    } else {
-      await page.getByText('End of results.', { exact: true }).waitFor()
-      assert.equal(await page.getByText('End of results.').evaluate((element) => element === globalThis.document.activeElement), true)
-      assert.equal(await cards.count(), 25)
+      assert.deepEqual(matchingNames, [
+        'Open recipe Family tomato rice, cooked Oct 25, 2026, entry 1',
+        'Open recipe Family tomato rice, cooked Oct 25, 2026, entry 25',
+      ])
+      if (desktop) {
+        await page.goBack()
+        await expect(next).toBeVisible()
+        await page.goForward()
+        await expect(page.getByText('End of results.')).toBeVisible()
+      }
     }
     assert.equal(await page.getByRole('button', { name: 'Load more' }).count(), 0)
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)
@@ -219,6 +232,15 @@ try {
       await assertJournalSemantics(page, 'discovery pending search')
       await page.getByRole('heading', { name: 'Combined match: slow' }).waitFor()
 
+      await searchScope.selectOption('title')
+      await searchInput.fill('basil')
+      await expect(page.getByText('You searched recipe titles. Try both with the same search.')).toBeVisible()
+      const broaden = page.getByRole('button', { name: 'Search titles and ingredients', exact: true })
+      await broaden.press('Enter')
+      await page.getByRole('heading', { name: 'Combined match: basil' }).waitFor()
+      await expect(searchInput).toHaveValue('basil')
+      await expect(sort).toHaveValue('rating')
+
       await searchInput.fill('missing')
       await page.getByRole('heading', { name: 'No recipes match your search.' }).waitFor()
       await assertJournalSemantics(page, 'discovery empty results')
@@ -238,6 +260,24 @@ try {
 
       await searchInput.fill('')
       await page.getByRole('heading', { name: 'Saved recipes (24)' }).waitFor()
+    }
+    if (width === 1440) {
+      await page.setViewportSize({ width: 1280, height: 720 })
+      await page.getByRole('link', { name: 'Browse saved recipes' }).click()
+      const collection = page.getByRole('region', { name: 'Recipe collection page 1' })
+      await expect(collection).toBeVisible()
+      assert.equal(await collection.getAttribute('aria-keyshortcuts'), '/')
+      const hint = page.getByText('Focus the recipe list and press / to search', { exact: true })
+      await expect(hint).toBeVisible()
+      const hintBox = await hint.boundingBox()
+      assert.ok(hintBox && hintBox.y >= 0 && hintBox.y + hintBox.height <= 720, 'Shortcut guidance fits at 1280×720')
+      await collection.focus()
+      await page.keyboard.press('/')
+      await expect(page.getByRole('searchbox', { name: 'Search recipes' })).toBeFocused()
+      await expect(page).toHaveURL(/view=index/)
+      assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, 'No horizontal overflow at 1280×720')
+      await page.screenshot({ path: path.join(outputDir, '1280x720-collection-search-shortcut.png') })
+      await page.setViewportSize({ width: 1440, height: 900 })
     }
     const mori = page.getByRole('button', { name: 'Talk to Mori', exact: true })
     await mori.click()

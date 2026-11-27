@@ -9,11 +9,31 @@
 .mm-desk .mm-reading-identity .mm-recipe-detail__summary h1 { font-size: clamp(27px, 2.5vw, 38px); }
 .mm-desk .mm-reading-left-folio { flex: none; padding-top: 8px; border-top: 1.5px dashed rgb(120 92 60 / .3); }
 .mm-reading-running-head { flex: none; min-height: 42px; margin-bottom: 12px; display: flex; align-items: center; color: var(--mm-color-ink-soft); font: 500 18px/1.2 var(--mm-font-hand); }
+@media (min-width: 1100px) and (min-height: 640px) {
+  /* Keep the header height stable while the reader remeasures its pages. */
+  .mm-reading-running-head:not(.mm-reading-running-head--demo) { min-height: 44px; }
+  .mm-reading-section-nav { display: flex; flex: 1 1 100%; gap: 4px; }
+  .mm-desk .mm-reading-section-nav .button {
+    flex: 1 0 min-content;
+    min-inline-size: min-content;
+    min-height: 44px;
+    padding-inline: 2px;
+    justify-content: center;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: normal;
+    font-size: 13px;
+    line-height: 1.2;
+  }
+  .mm-desk .mm-reading-section-nav .button[aria-current='location'] { color: var(--mm-color-burgundy-700); opacity: 1; text-decoration: underline; text-underline-offset: 3px; }
+}
 .mm-reading-request-status { flex: none; }
 .mm-reading-request-status:empty { display: none; }
 .mm-desk .mm-reading-unit { margin: 0; padding: 0; transform: none; box-shadow: none; background: none; }
 .mm-desk .mm-reading-unit + .mm-reading-unit, .mm-unit-group + .mm-unit-group { margin-top: 10px; }
-.mm-unit-group { margin: 0; }
+.mm-reading-page-content :is(ul, ol) > li + li,
+.mm-reading-page-content .mm-reading-notes .mm-unit-content > p + p { margin-block-start: 10px; }
+.mm-reading-page-content :is(.mm-reading-ingredients ul, .mm-reading-method ol) { gap: 0; }
 .mm-continuation-title { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
 .mm-reading-unit .mm-unit-heading { margin: 0 0 8px; }
 .mm-desk .mm-reading-unit .mm-unit-heading h2 { font-size: 21px; }
@@ -24,7 +44,7 @@
 .mm-desk .mm-reading-unit.mm-reading-notes { padding: 18px 18px 24px; background: #fffdf6 var(--mm-tex-grain); box-shadow: var(--mm-shadow-paper); }
 .mm-desk .mm-reading-unit.mm-reading-notes .mm-unit-content { font: italic 400 16px/1.75 var(--mm-font-serif); }
 .mm-desk .mm-reading-unit.mm-reading-notes .mm-unit-heading h2 { color: var(--mm-color-burgundy-700); font: 700 11px/1.2 var(--mm-font-sans); letter-spacing: .15em; text-transform: uppercase; }
-.mm-desk .mm-reading-unit .mm-reading-notes__empty { font: 500 19px/1.4 var(--mm-font-hand); }
+.mm-desk .mm-reading-unit .mm-reading-notes__empty { color: var(--mm-color-ink-soft); font: 400 1rem/1.55 var(--mm-font-sans); }
 .mm-reading-measure { position: fixed; top: 0; left: -20000px; visibility: hidden; pointer-events: none; contain: layout style; }
 .mm-reading-measure .mm-unit-content { max-height: none; overflow: visible; }
 .mm-reading-measure .mm-reading-unit { position: relative; }
@@ -34,6 +54,7 @@
 .mm-desk .mm-reading-turns .button:disabled { opacity: .5; cursor: default; }
 .mm-reading-footer:empty { display: none; }
 .mm-reading-end { color: var(--mm-color-ink-soft); font: italic 18px/1.6 var(--mm-font-serif); }
+.mm-reading-method a { color: var(--mm-color-burgundy-700); font-weight: 650; text-underline-offset: 3px; }
 @media (max-width: 1099.98px), (max-height: 639.98px) {
   .mm-desk .mm-journal-spread:has(.mm-continuation) { display: flex; flex-direction: column; }
   .mm-desk .mm-journal-flyleaf:has(.mm-continuation-facing) { display: none; }
@@ -53,4 +74,14 @@
   .mm-desk .mm-journal-spread:has(.mm-continuation) { overflow: visible; }
   .mm-desk .mm-journal-page:has(.mm-continuation) { min-height: var(--mm-page-height); height: auto; padding-bottom: 16px; }
   .mm-desk .mm-journal-page:has(.mm-continuation) > .mm-journal-page-footer { position: relative; inset: auto; width: auto; margin: 12px 0 0; padding: 8px 0 0; }
+}
+
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-desk .mm-reading-identity--demo { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+  .mm-reading-identity--demo .mm-recipe-detail__summary { inline-size: 100%; min-block-size: 9rem; }
+  .mm-desk .mm-reading-identity--demo .mm-recipe-artwork--detail { --mm-photo-width: min(100%, 130px); margin: 0; }
+}
+
+@media (max-width: 1099.98px), (max-height: 639.98px) {
+  .mm-reading-identity--demo .mm-recipe-artwork--detail { order: -1; }
 }

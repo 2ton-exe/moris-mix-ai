@@ -11,6 +11,7 @@ import {
 } from "../_shared/requestId.ts";
 import type {
   AIProvider,
+  GenerateRecipeContext,
   GenerateRecipeInput,
 } from "../_shared/ai/AIProvider.ts";
 import { AIError, GeminiAdapter } from "../_shared/ai/GeminiAdapter.ts";
@@ -40,8 +41,14 @@ import {
 } from "../_shared/ai/recipeContext.ts";
 import {
   buildChefPrompt,
+  buildRecipeRevisionPrompt,
   isWithinAiPromptBudget,
 } from "../_shared/ai/prompts.ts";
+import {
+  explainRecipeRevision,
+  loadRecipeRevisionContext,
+  type RecipeRevisionContext,
+} from "../_shared/ai/recipeRevision.ts";
 import {
   resolveCandidateTokenSecret,
   signCandidateToken,
@@ -49,9 +56,11 @@ import {
 import {
   type ChefRecipeContextResult,
   GeneratedRecipeSchema,
+  GeneratedRevisionSchema,
   GenerateRecipeRequestSchema,
   type GenerateRecipeResponse,
   GenerateRecipeResponseSchema,
+  RecipeRevisionRequestSchema,
   type SuggestedParent,
 } from "../_shared/ai/schemas.ts";
 
@@ -108,10 +117,10 @@ function resolveProvider(deps: GenerateRecipeDeps): AIProvider {
 
 function resolveParents(
   parentRecipeIds: string[],
-  context: ChefRecipeContextResult,
+  sources: SuggestedParent[],
 ): SuggestedParent[] {
   const candidates = new Map(
-    context.recipes.map((recipe) => [recipe.id, recipe]),
+    sources.map((recipe) => [recipe.id, recipe]),
   );
   const parents: SuggestedParent[] = [];
   const seen = new Set<string>();
@@ -249,7 +258,12 @@ async function handleRequest(
       );
     }
 
-    const validation = GenerateRecipeRequestSchema.safeParse(parsedBody);
+    const wantsRevision = !("pantryItems" in parsedBody) &&
+      ("sourceRecipeId" in parsedBody || "noteExcerpt" in parsedBody);
+    const requestSchema = wantsRevision
+      ? RecipeRevisionRequestSchema
+      : GenerateRecipeRequestSchema;
+    const validation = requestSchema.safeParse(parsedBody);
     if (!validation.success) {
       const details = validation.error.issues.map((issue) => ({
         path: issue.path.join("."),
@@ -268,12 +282,35 @@ async function handleRequest(
       );
     }
 
-    const input: GenerateRecipeInput = {
-      pantryItems: validation.data.pantryItems,
-      ...(validation.data.preferences === undefined
-        ? {}
-        : { preferences: validation.data.preferences }),
-    };
+    let revisionContext: RecipeRevisionContext | undefined;
+    let input: GenerateRecipeInput;
+    if ("sourceRecipeId" in validation.data) {
+      const revision = await loadRecipeRevisionContext(
+        auth.context,
+        validation.data,
+      );
+      if (revision.status === "not_found") {
+        return errorResponse("NOT_FOUND", "This recipe is unavailable.", 404);
+      }
+      if (revision.status === "stale_note") {
+        return errorResponse(
+          "REVISION_NOTE_CHANGED",
+          "Your Personal Notes changed. Open the recipe and select the note again.",
+          409,
+        );
+      }
+      if (revision.status === "too_large") {
+        return errorResponse(
+          "REVISION_SOURCE_TOO_LARGE",
+          "This recipe is too long for a focused revision. Your saved recipe and notes are unchanged.",
+          422,
+        );
+      }
+      revisionContext = revision.context;
+      input = { pantryItems: [] };
+    } else {
+      input = validation.data;
+    }
 
     let candidateTokenSecret: string;
     try {
@@ -327,12 +364,13 @@ async function handleRequest(
 
     let providerStarted = false;
     try {
-      let context: ChefRecipeContextResult;
+      let context: GenerateRecipeContext;
       try {
-        context = await (deps.buildContext ?? buildChefRecipeContext)(
-          auth.context,
-          input,
-        );
+        context = revisionContext ??
+          await (deps.buildContext ?? buildChefRecipeContext)(
+            auth.context,
+            input,
+          );
       } catch (contextError) {
         if (contextError instanceof ChefCandidateContextTooLargeError) {
           throw new AIError(
@@ -347,7 +385,10 @@ async function handleRequest(
         throw contextError;
       }
 
-      if (!isWithinAiPromptBudget(buildChefPrompt(context))) {
+      const prompt = "source" in context
+        ? buildRecipeRevisionPrompt(context)
+        : buildChefPrompt(context);
+      if (!isWithinAiPromptBudget(prompt)) {
         throw new AIError(
           "context_too_large",
           "generate",
@@ -362,7 +403,9 @@ async function handleRequest(
       providerStarted = true;
       const generated = await provider.generateRecipe(input, context);
 
-      const revalidated = GeneratedRecipeSchema.safeParse(generated);
+      const revalidated =
+        ("source" in context ? GeneratedRevisionSchema : GeneratedRecipeSchema)
+          .safeParse(generated);
       if (!revalidated.success) {
         throw new AIError(
           "invalid_output",
@@ -374,7 +417,23 @@ async function handleRequest(
         );
       }
 
-      const parents = resolveParents(revalidated.data.parentRecipeIds, context);
+      const parents = "source" in context
+        ? resolveParents(
+          [...revalidated.data.parentRecipeIds, context.source.id],
+          [context.source],
+        )
+        : resolveParents(revalidated.data.parentRecipeIds, context.recipes);
+      const revision = "source" in context
+        ? explainRecipeRevision(context, revalidated.data)
+        : undefined;
+      if (revision === null) {
+        throw new AIError(
+          "revision_change_unsupported",
+          "generate",
+          "Revision did not contain one verifiable amount change.",
+        );
+      }
+
       const candidateToken = parents.length === 0
         ? null
         : await signCandidateToken({
@@ -388,11 +447,18 @@ async function handleRequest(
         substitutions: revalidated.data.substitutions,
         parents,
         candidate_token: candidateToken,
-        context: {
-          status: context.status,
-          matchedCandidateCount: context.matchedCandidateCount,
-          totalCandidateCount: context.totalCandidateCount,
-        },
+        context: "source" in context
+          ? {
+            status: "MATCHED",
+            matchedCandidateCount: 1,
+            totalCandidateCount: 1,
+          }
+          : {
+            status: context.status,
+            matchedCandidateCount: context.matchedCandidateCount,
+            totalCandidateCount: context.totalCandidateCount,
+          },
+        ...(revision ? { revision } : {}),
       };
 
       const responseValidation = GenerateRecipeResponseSchema.safeParse(

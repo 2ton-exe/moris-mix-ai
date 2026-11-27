@@ -7,17 +7,21 @@ interface AuthFieldProps {
   autoComplete: string
   error?: string
   hint?: string
+  inputClassName?: string
+  defaultValue?: string
+  onValueChange?: (value: string) => void
 }
 
-export function AuthField({ name, label, type, autoComplete, error, hint }: AuthFieldProps) {
+export function AuthField({ name, label, type, autoComplete, error, hint, defaultValue, onValueChange, inputClassName }: AuthFieldProps) {
   const [visible, setVisible] = useState(false)
   return (
     <div className="auth-field">
       <label htmlFor={name}>{label}</label>
       {hint && <p className="field-hint" id={`${name}-hint`}>{hint}</p>}
       <div className="input-row">
-        <input id={name} name={name} type={type === 'password' && visible ? 'text' : type}
-          autoComplete={autoComplete} required aria-invalid={Boolean(error)}
+        <input id={name} name={name} className={inputClassName} type={type === 'password' && visible ? 'text' : type}
+          autoComplete={autoComplete} defaultValue={defaultValue} onChange={onValueChange && ((event) => onValueChange(event.target.value))}
+          spellCheck={type === 'email' ? false : undefined} required aria-invalid={Boolean(error)}
           aria-describedby={[hint && `${name}-hint`, error && `${name}-error`].filter(Boolean).join(' ') || undefined} />
         {type === 'password' && <button className="password-toggle" type="button" aria-pressed={visible}
           aria-label={`${visible ? 'Hide' : 'Show'} ${label.toLowerCase()}`} onClick={() => setVisible((value) => !value)}>

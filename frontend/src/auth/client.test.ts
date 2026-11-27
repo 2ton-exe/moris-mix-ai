@@ -86,14 +86,14 @@ it('bounds callback processing independently and never promotes its late success
   sdk.auth.initialize.mockResolvedValue({ error: null })
   sdk.auth.exchangeCodeForSession.mockReturnValue(new Promise((resolve) => { resolveExchange = resolve }))
   window.history.replaceState(null, '', '/auth/callback?code=unit-test-code')
-  const { getVerificationCallbackResult } = await import('./client')
-  const result = getVerificationCallbackResult()
+  const { getAuthCallbackResult } = await import('./client')
+  const result = getAuthCallbackResult()
   await vi.advanceTimersByTimeAsync(15_000)
-  expect(await result).toBe(false)
+  expect(await result).toEqual({ kind: 'invalid' })
   expect(window.location.search).toBe('')
   resolveExchange({ data: { session: {} }, error: null })
   await Promise.resolve()
-  expect(await getVerificationCallbackResult()).toBe(false)
+  expect(await getAuthCallbackResult()).toEqual({ kind: 'invalid' })
   expect(sdk.createClient).toHaveBeenCalledOnce()
 })
 
@@ -102,11 +102,11 @@ it('does not apply an expired callback deadline to later PKCE requests', async (
   sdk.auth.initialize.mockResolvedValue({ error: null })
   sdk.auth.exchangeCodeForSession.mockReturnValue(new Promise(() => {}))
   window.history.replaceState(null, '', '/auth/callback?code=unit-test-code')
-  const { getVerificationCallbackResult } = await import('./client')
-  const result = getVerificationCallbackResult()
+  const { getAuthCallbackResult } = await import('./client')
+  const result = getAuthCallbackResult()
 
   await vi.advanceTimersByTimeAsync(15_000)
-  expect(await result).toBe(false)
+  expect(await result).toEqual({ kind: 'invalid' })
 
   const clientOptions = sdk.createClient.mock.calls[0]?.[2] as { global?: { fetch?: typeof fetch } } | undefined
   const fetchWithGuard = clientOptions?.global?.fetch
@@ -123,11 +123,11 @@ it('does not start a callback exchange when initialization finishes after the de
   let resolveInitialization!: (value: { error: null }) => void
   sdk.auth.initialize.mockReturnValue(new Promise((resolve) => { resolveInitialization = resolve }))
   window.history.replaceState(null, '', '/auth/callback?lang=en&code=unit-test-code')
-  const { getVerificationCallbackResult } = await import('./client')
-  const result = getVerificationCallbackResult()
+  const { getAuthCallbackResult } = await import('./client')
+  const result = getAuthCallbackResult()
 
   await vi.advanceTimersByTimeAsync(15_000)
-  expect(await result).toBe(false)
+  expect(await result).toEqual({ kind: 'invalid' })
   resolveInitialization({ error: null })
   await vi.advanceTimersByTimeAsync(0)
 

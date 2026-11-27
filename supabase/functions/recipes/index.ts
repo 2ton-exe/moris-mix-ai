@@ -24,6 +24,7 @@ import {
   type CandidateTokenErrorReason,
   findDisallowedParentIds,
   resolveCandidateTokenSecret,
+  signCandidateToken,
   verifyCandidateToken,
 } from "../_shared/ai/candidateToken.ts";
 
@@ -74,6 +75,7 @@ export const MAX_RECIPE_CURSOR_CHARS = 4096;
 
 type RouteMatch =
   | { kind: "COLLECTION" }
+  | { kind: "LINEAGE_AUTHORIZATION" }
   | { kind: "MEMBER"; id: string }
   | { kind: "LINEAGE"; id: string }
   | { kind: "NOT_FOUND" };
@@ -94,6 +96,9 @@ function parseRoute(pathname: string): RouteMatch {
   const parts = path.split("/").filter((segment) => segment.length > 0);
   if (parts.length === 0) {
     return { kind: "COLLECTION" };
+  }
+  if (parts.length === 1 && parts[0] === "lineage-authorization") {
+    return { kind: "LINEAGE_AUTHORIZATION" };
   }
   if (parts.length === 1) {
     return { kind: "MEMBER", id: parts[0] };
@@ -956,6 +961,13 @@ async function handleRequest(
           },
         );
       }
+    } else if (route.kind === "LINEAGE_AUTHORIZATION") {
+      if (req.method !== "POST") {
+        return recipesJsonResponse({ error: { code: "METHOD_NOT_ALLOWED", message: "Only POST and OPTIONS methods are supported." } }, {
+          status: 405,
+          headers: { Allow: "POST, OPTIONS" },
+        });
+      }
     } else if (route.kind === "LINEAGE") {
       if (req.method !== "GET" && req.method !== "POST") {
         return recipesJsonResponse(
@@ -1002,6 +1014,107 @@ async function handleRequest(
     }
 
     const { user, supabase } = auth.context;
+
+    if (route.kind === "LINEAGE_AUTHORIZATION") {
+      if (!isJsonRequest(req)) {
+        return recipesJsonResponse({
+          error: {
+            code: "UNSUPPORTED_MEDIA_TYPE",
+            message: "Content-Type must be application/json.",
+          },
+        }, { status: 415 });
+      }
+      const read = await readBodyWithinByteLimit(req, MAX_LINEAGE_REQUEST_BYTES);
+      if (!read.ok) {
+        return recipesJsonResponse({
+          error: {
+            code: read.reason === "too_large"
+              ? "INPUT_TOO_LARGE"
+              : "INVALID_JSON",
+            message: "Could not read recipe link authorization.",
+          },
+        }, { status: read.reason === "too_large" ? 413 : 400 });
+      }
+      let body: unknown;
+      try {
+        body = JSON.parse(read.text);
+      } catch {
+        return recipesJsonResponse({
+          error: {
+            code: "INVALID_JSON",
+            message: "Request body must be a valid JSON object.",
+          },
+        }, { status: 400 });
+      }
+      const parsed = CreateLineageRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        return recipesJsonResponse({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Invalid recipe link authorization.",
+          },
+        }, { status: 400 });
+      }
+      const secret = resolveCandidateTokenSecret(deps?.candidateTokenSecret);
+      const verification = await verifyCandidateToken(
+        parsed.data.candidate_token,
+        { userId: user.id, secret },
+      );
+      if (!verification.ok && verification.reason !== "expired") {
+        const rejection = lineageCandidateTokenRejection(verification.reason);
+        return recipesJsonResponse({
+          error: {
+            code: "FORBIDDEN",
+            message: rejection.message,
+            details: [{
+              path: "candidate_token",
+              code: rejection.code,
+              message: rejection.message,
+            }],
+          },
+        }, { status: 403 });
+      }
+      const parentIds = parsed.data.parent_recipe_ids;
+      if (
+        findDisallowedParentIds(verification.claims.parent_recipe_ids, parentIds)
+          .length
+      ) {
+        return recipesJsonResponse({
+          error: {
+            code: "FORBIDDEN",
+            message: "The selected recipes were not in this preview.",
+            details: [{
+              path: "parent_recipe_ids",
+              code: "not_a_candidate",
+              message: "Select recipes from this preview.",
+            }],
+          },
+        }, { status: 403 });
+      }
+      const { data: parents, error } = await supabase.from("recipes").select(
+        "id,user_id",
+      ).in("id", parentIds).eq("user_id", user.id);
+      if (error) throw new Error("Could not verify recipe link ownership.");
+      const owned = new Set(
+        (parents ?? []).filter((parent: { user_id: string }) =>
+          parent.user_id === user.id
+        ).map((parent: { id: string }) => parent.id.toLowerCase()),
+      );
+      if (parentIds.some((id) => !owned.has(id.toLowerCase()))) {
+        return recipesJsonResponse({
+          error: {
+            code: "NOT_FOUND",
+            message: "A selected recipe is unavailable.",
+          },
+        }, { status: 404 });
+      }
+      const candidate_token = await signCandidateToken({
+        userId: user.id,
+        parentRecipeIds: parentIds,
+        secret,
+      });
+      return recipesJsonResponse({ candidate_token }, { status: 200 });
+    }
 
     if (route.kind === "COLLECTION") {
       if (req.method === "GET") {
@@ -2160,14 +2273,16 @@ async function handleRequest(
         updatePayload.cooked_at = validated.cooked_at;
       }
 
-      const { data, error } = await supabase
-        .from("recipes")
+      const update = supabase.from("recipes")
         .update(updatePayload)
         .eq("id", recipeId)
-        .eq("user_id", user.id)
-        .select(
-          "id, user_id, title, raw_input, notes, ingredients, instructions, flavor_scores, star_rating, cooked_at, image_url, created_at, updated_at",
-        )
+        .eq("user_id", user.id);
+      if (validated.expected_updated_at !== undefined) {
+        update.eq("updated_at", validated.expected_updated_at);
+      }
+      const { data, error } = await update.select(
+        "id, user_id, title, raw_input, notes, ingredients, instructions, flavor_scores, star_rating, cooked_at, image_url, created_at, updated_at",
+      )
         .maybeSingle();
 
       if (error) {
@@ -2185,6 +2300,27 @@ async function handleRequest(
 
       const record = normalizeRecord(data);
       if (!record) {
+        if (validated.expected_updated_at !== undefined) {
+          const { data: existing, error: lookupError } = await supabase
+            .from("recipes")
+            .select("id")
+            .eq("id", recipeId)
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (lookupError) throw new Error("Recipe version lookup failed.");
+          if (normalizeRecord(existing)?.id === recipeId) {
+            return recipesJsonResponse(
+              {
+                error: {
+                  code: "RECIPE_CHANGED",
+                  message:
+                    "The recipe changed. Reload it before saving cooking details.",
+                },
+              },
+              { status: 409 },
+            );
+          }
+        }
         return recipesJsonResponse(
           {
             error: {

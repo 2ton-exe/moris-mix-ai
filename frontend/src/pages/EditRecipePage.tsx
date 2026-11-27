@@ -1,10 +1,11 @@
-import { useState } from 'react'
-import { journalReturnTo } from '../journal/indexNavigation'
-import { useLocation, useNavigate, useParams } from 'react-router'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { HttpError } from '../api/http'
 import { useAuth } from '../auth/context'
 import { ErrorState } from '../components/ErrorState'
-import { LoadingState } from '../components/LoadingState'
+import { RecipeEditorSkeleton } from '../recipe-form/RecipeEditorSkeleton'
+import { journalReturnTo } from '../journal/indexNavigation'
+import { JournalShell } from '../journal/JournalShell'
 import { RecipeForm } from '../recipe-form/RecipeForm'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import type { RecipeEditorRecord, SaveRecipeDraft } from '../recipe-form/submission'
@@ -23,11 +24,11 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   const location = useLocation()
   const [dirty, setDirty] = useState(false)
   const query = useRecipe(recipeId, !record && !isLoading && !loadError)
-  const submit = useRecipeSave(save, recipeId)
-  const navigationConfirmation = useUnsavedChangesGuard(dirty)
+  const navigationConfirmation = useUnsavedChangesGuard(dirty, { guardLogout: true })
   const loadedRecord = query.data && user?.id ? {
     id: query.data.id,
     userId: user.id,
+    updatedAt: query.data.updated_at,
     values: {
       title: query.data.title,
       ingredients: query.data.ingredients,
@@ -38,8 +39,11 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
     },
   } : undefined
   const activeRecord = record ?? loadedRecord
+  const submit = useRecipeSave(save, recipeId, activeRecord)
   const activeLoading = isLoading || (!record && !loadError && query.isLoading)
   const activeError = loadError ?? (!record ? query.error : undefined)
+  const recoveryHeading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { recoveryHeading.current?.focus() }, [activeError, activeLoading, recipeId])
   const retry = onRetry ?? (() => { void query.refetch() })
   let message = 'Could not load this recipe. Please try again.'
   let canRetry = true
@@ -50,13 +54,25 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   const available = activeRecord && activeRecord.id === recipeId && activeRecord.userId === user?.id
   const accessDenied = activeError instanceof HttpError && [401, 403, 404].includes(activeError.status ?? 0)
   const canEdit = available && !accessDenied
-  if (canEdit) return <RecipeForm key={`${user?.id}:${activeRecord.id}`} mode="edit" initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} onCancel={() => navigate(journalReturnTo(location.state, '/app'))}
+  const initialSection = new URLSearchParams(location.search).get('section') === 'method' ? 'method' : undefined
+  if (canEdit || (activeLoading && !activeError)) return <div className="recipe-form mm-recipe-form-editor mm-edit-recipe">
+    <RecipeEditorFrame mode="edit" connected showBack={false} focusHeading={!!canEdit && !initialSection}
+      headingIntro="Your journal keeps the last saved version while you edit."
+      navigationConfirmation={navigationConfirmation}>
+    {canEdit ? <RecipeForm key={`${user?.id}:${activeRecord.id}:${initialSection ?? 'start'}`} mode="edit" initialSection={initialSection} initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} cancelLabel="Back to recipe" onCancel={() => navigate(`/app/recipes/${encodeURIComponent(recipeId)}`, { state: location.state })}
     notice={activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
     supplement={import.meta.env.VITE_RECIPE_IMAGES === 'true' && <RecipeImagePanel key={`${user?.id}:image-${activeRecord.id}`} recipeId={activeRecord.id} recipeTitle={activeRecord.values.title} allowUpload />}
-    renderFrame={(content) => <RecipeEditorFrame mode="edit" connected showBack={false} navigationConfirmation={navigationConfirmation}>{content}</RecipeEditorFrame>} />
-  return <RecipeEditorFrame mode="edit" connected navigationConfirmation={navigationConfirmation}>
-    {activeLoading && <LoadingState message="Loading recipe for editing…" />}
-    {activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
-    {!activeLoading && !activeError && <p className="request-state" role="status">This recipe is not available for editing yet. Please return when your journal is connected.</p>}
-  </RecipeEditorFrame>
+    /> : <RecipeEditorSkeleton showHeading={false} />}
+    </RecipeEditorFrame>
+  </div>
+  return <JournalShell mode="writing" account={<div className="journal-account"><span>{user?.email}</span></div>}>
+    <section className="mm-recipe-recovery" aria-labelledby="edit-unavailable-heading">
+      <h1 id="edit-unavailable-heading" ref={recoveryHeading} tabIndex={-1}>Recipe unavailable</h1>
+      {activeError ? <ErrorState message={message} onRetry={canRetry ? retry : undefined} />
+        : <p className="request-state" role="status">This recipe is unavailable. Open a recipe from your journal to edit it.</p>}
+      <div className="mm-recipe-recovery__actions">
+        <Link className={`button ${activeError && canRetry ? 'button-secondary' : 'button-primary'}`} to={journalReturnTo(location.state)}>Browse your recipes</Link>
+      </div>
+    </section>
+  </JournalShell>
 }

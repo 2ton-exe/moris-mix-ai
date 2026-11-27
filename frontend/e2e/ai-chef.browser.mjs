@@ -13,6 +13,8 @@ import { createServer } from 'vite'
 import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
 import { settleJournalLayout } from './journal-geometry.mjs'
 
+const desktopOnly = process.env.MORI_DESKTOP_ONLY === 'true'
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const userId = '44444444-4444-4444-8444-444444444444'
 const user = {
@@ -157,6 +159,13 @@ async function handleApiRequest(request, response) {
     } : generated)
     return
   }
+  if (url.pathname === '/functions/v1/recipes/lineage-authorization' && request.method === 'POST') {
+    assert.ok(body.parent_recipe_ids.length > 0)
+    const preview = activeScenario === 'expanded-review' ? expandedSuggestion : generated
+    assert.equal(body.candidate_token, preview.candidate_token)
+    sendJson(request, response, 200, { candidate_token: preview.candidate_token })
+    return
+  }
   if (url.pathname === '/functions/v1/recipes' && request.method === 'POST') {
     recipeWrites.push({ body, authorization: request.headers.authorization })
     sendJson(request, response, 201, { recipe: {
@@ -177,7 +186,7 @@ async function handleApiRequest(request, response) {
   if (lineageRoute && request.method === 'POST') {
     const childRecipeId = decodeURIComponent(lineageRoute[1])
     lineageWrites.push({ childRecipeId, body, authorization: request.headers.authorization })
-    if (activeScenario === 'expired') {
+    if (activeScenario === 'expired' && lineageWrites.length === 1) {
       sendJson(request, response, 403, {
         error: { code: 'FORBIDDEN', message: 'Not authorized.', details: [{ code: 'expired_token' }] },
       })
@@ -226,9 +235,55 @@ async function beginScenario(page, origin, name) {
   await pantry.press('Enter')
   await page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
   await expect(page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
+  await advanceChefReviewToSave(page)
   const generation = requests.find((request) => request.path === '/functions/v1/generate-recipe')
   assert.ok(generation, 'AI Chef did not call the authenticated generation endpoint in ' + name)
   assert.equal(generation.authorization, 'Bearer ' + session.access_token)
+}
+
+async function advanceChefReviewToSave(page, saveName = 'Save recipe') {
+  const next = page.getByRole('button', { name: /^Next:/ })
+  const progress = page.locator('.mm-review-progress')
+  const save = page.getByRole('button', { name: saveName, exact: true })
+  const method = page.locator('textarea[name="instructions.0.text"]:not([disabled])')
+  const saveAlreadyAvailable = await save.isVisible()
+  if (saveName === 'Save changes' && saveAlreadyAvailable) return
+  let sawMethod = await method.isVisible()
+  while (await next.isVisible()) {
+    await expect(save).toHaveCount(0)
+    const current = await progress.innerText()
+    await next.click()
+    await expect(progress).not.toHaveText(current)
+    sawMethod ||= await method.isVisible()
+  }
+  if (!saveAlreadyAvailable) assert.ok(sawMethod, 'The cooking method was not presented before the final Save action')
+  await expect(save).toBeVisible()
+}
+
+async function returnChefReviewToTitle(page) {
+  const editSaved = page.getByRole('button', { name: 'Edit saved recipe', exact: true })
+  if (await editSaved.isVisible()) await editSaved.click()
+  const title = page.getByRole('textbox', { name: 'Recipe title', exact: true })
+  const previous = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true })
+    .getByRole('button', { name: /^Previous:/ })
+  while (!await title.isVisible()) {
+    const current = await page.locator('.mm-review-progress').innerText()
+    await previous.click()
+    await expect(page.locator('.mm-review-progress')).not.toHaveText(current)
+  }
+  return title
+}
+
+async function returnChefReviewToMethod(page) {
+  const method = page.locator('textarea[name="instructions.0.text"]:not([disabled])')
+  const previous = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true })
+    .getByRole('button', { name: /^Previous:/ })
+  while (!await method.isVisible()) {
+    const current = await page.locator('.mm-review-progress').innerText()
+    await previous.click()
+    await expect(page.locator('.mm-review-progress')).not.toHaveText(current)
+  }
+  return method
 }
 
 async function continueLocalRequest(route) {
@@ -291,7 +346,7 @@ try {
   await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeVisible()
 
   // The pantry input must retain a usable width even on a narrow journal leaf.
-  for (const width of [1440, 1100, 768, 400, 375, 320]) {
+  for (const width of [1440, 1100, 768, 400, 375, 320].filter(width => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height: 900 })
     await settleJournalLayout(page)
     const dimensions = await page.locator('.mm-ai-chef__ingredient-entry').evaluate((entry) => {
@@ -342,6 +397,9 @@ try {
   await page.getByRole('button', { name: 'Grid view' }).click()
   await expect(firstCards).toHaveCount(12)
 
+  const quickAdd = page.locator('.mm-ai-chef__quick-add')
+  assert.equal(await quickAdd.evaluate((details) => details.open), false, 'Common ingredient suggestions start collapsed')
+  await quickAdd.locator('summary').click()
   await page.getByRole('button', { name: 'Remove Garlic' }).click()
   const garlic = page.getByRole('button', { name: 'garlic', exact: true })
   await expect(garlic).toBeEnabled()
@@ -352,7 +410,7 @@ try {
   await expect(pantryInput).toBeFocused()
   await pantryInput.clear()
 
-  await page.setViewportSize({ width: 1100, height: 700 })
+  await page.setViewportSize({ width: 1100, height: 640 })
   await settleJournalLayout(page)
   await expect(page.getByRole('navigation', { name: 'Pantry board pages' })).toBeVisible()
   assert.ok(await board.evaluate((element) =>
@@ -366,9 +424,11 @@ try {
       .querySelector('.mm-journal-page-footer').getBoundingClientRect().top
   ), 'Validation stays within the bounded pantry workspace on compact desktop')
   await pantryInput.clear()
-  await page.setViewportSize({ width: 375, height: 800 })
-  await settleJournalLayout(page)
-  await expect(firstCards).toHaveCount(1)
+  if (!desktopOnly) {
+    await page.setViewportSize({ width: 375, height: 800 })
+    await settleJournalLayout(page)
+    await expect(firstCards).toHaveCount(1)
+  }
   await page.setViewportSize({ width: 1440, height: 900 })
   await settleJournalLayout(page)
   await expect(firstCards).toHaveCount(12)
@@ -388,12 +448,12 @@ try {
   await expect(firstCards).toHaveCount(12)
 
   await page.emulateMedia({ reducedMotion: 'no-preference' })
-  await page.getByRole('button', { name: 'Next page', exact: true }).click()
+  await page.getByRole('button', { name: /^Next page/ }).click()
   await expect(page.locator('[data-journal-page-turn][data-phase="animating"]')).toBeVisible()
   await expect(page.getByRole('textbox', { name: /^Cooking preferences/ })).toBeVisible()
   await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.getByRole('button', { name: 'Previous page', exact: true }).click()
+  await page.getByRole('button', { name: /^Previous page/ }).click()
   await expect(page.getByRole('button', { name: 'Remove Bay Leaves' })).toBeVisible()
 
   for (const item of referenceItems) await page.getByRole('button', { name: new RegExp('^Remove ' + item + '$', 'i') }).click()
@@ -429,7 +489,7 @@ try {
   await pantryInput.press('Enter')
   await expect(page.getByRole('status')).toContainText('already in your pantry list')
   await expect(page.getByRole('region', { name: 'Pantry list, 2 items' })).toContainText('rice')
-  await page.getByRole('button', { name: 'Next page', exact: true }).click()
+  await page.getByRole('button', { name: /^Next page/ }).click()
   const preferences = page.getByRole('textbox', { name: /^Cooking preferences/ })
   await expect(preferences).toBeVisible()
   assert.ok(await preferences.evaluate((field) => field.clientWidth >= field.closest('fieldset').clientWidth - 2), 'Preferences collapsed on their own leaf')
@@ -440,7 +500,7 @@ try {
   await page.goto(`${origin}app/chef`)
   const resume = page.getByRole('complementary', { name: 'Unsaved AI Chef recipe' })
   const resumeLink = resume.getByRole('link', { name: 'Return to recipe review' })
-  for (const [width, height] of [[1440, 900], [1100, 640], [375, 800]]) {
+  for (const [width, height] of [[1440, 900], [1100, 640], [375, 800]].filter(([width]) => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
     const notice = await resume.evaluate((element) => {
@@ -458,64 +518,86 @@ try {
   await resumeLink.focus()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
+  const recipeLinksHelp = page.getByText('What are recipe links?', { exact: true })
+  const recipeLinksAnswer = page.getByText(/Choose recipes from your journal to link as inspiration/)
+  await expect(recipeLinksAnswer).toBeHidden()
+  await recipeLinksHelp.press('Enter')
+  await expect(recipeLinksAnswer).toBeVisible()
+  await recipeLinksHelp.press('Space')
+  await expect(recipeLinksAnswer).toBeHidden()
   const generation = requests.find((request) => request.path === '/functions/v1/generate-recipe')
   assert.ok(generation, 'AI Chef did not call the authenticated generation endpoint')
   assert.equal(generation.authorization, `Bearer ${session.access_token}`)
   assert.deepEqual(generation.body, { pantryItems: ['rice', 'eggs'], preferences: 'quick, no frying' })
   assert.equal(recipeWrites.length, 0, 'Generation saved a recipe before review')
-  const reviewLeaf = page.locator('.mm-writing-leaf').filter({ has: page.getByRole('region', { name: 'AI Chef generation details' }) })
   const recipeTitle = page.getByRole('textbox', { name: 'Recipe title', exact: true })
   const save = page.getByRole('button', { name: 'Save recipe', exact: true })
+  await expect(recipeTitle).toBeVisible()
+  await expect(recipeTitle).toHaveValue('Egg and rice skillet')
+  await expect(save).toHaveCount(0)
+  await advanceChefReviewToSave(page)
+  const initialMethod = await returnChefReviewToMethod(page)
+  await expect(initialMethod).toHaveValue('Warm the rice, then fold in the eggs.')
+  const cookingMethod = page.getByRole('region', { name: 'Instructions', exact: true })
+  await expect(cookingMethod.getByText('Ready', { exact: true })).toBeHidden()
+  await expect(cookingMethod.getByRole('button', { name: /^Add (?:cooking )?step$/ })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: /Instructions.*Step/ })).toBeVisible()
+  await advanceChefReviewToSave(page)
+  await expect(save).toBeVisible()
+  const reviewLeaf = page.locator('.mm-writing-leaf').filter({ has: page.getByRole('region', { name: 'AI Chef generation details' }) })
   const back = page.getByRole('button', { name: 'Back to AI Chef' })
   const reviewPages = page.locator('.mm-writing-leaf')
-  for (const [width, height] of [[1366, 768], [1536, 864], [1920, 1080]]) {
+  for (const [width, height] of [[1280, 720], [1366, 768], [1440, 900], [1536, 864], [1920, 1080]].filter(([width]) => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
-    await expect(recipeTitle).toBeInViewport({ ratio: 1 })
-    const titleBounds = await recipeTitle.boundingBox()
-    const progressTop = (await page.getByText('Review idea', { exact: true }).boundingBox()).y
-    assert.ok(titleBounds.y + titleBounds.height <= progressTop, 'The editable recipe title should sit above the review progress')
+    await advanceChefReviewToSave(page)
     await expect(save).toBeInViewport({ ratio: 1 })
     await expect(back).toBeInViewport({ ratio: 1 })
-    await expect(reviewLeaf.getByRole('heading', { name: 'Mori’s optional flavor estimates' })).toBeInViewport({ ratio: 1 })
+    await expect(page.getByRole('heading', { name: 'What will be saved' })).toBeVisible()
+    const optionalSummary = reviewLeaf.locator('summary').first()
+    await optionalSummary.scrollIntoViewIfNeeded()
+    await expect(optionalSummary).toBeInViewport({ ratio: 1 })
+    await expect(save).toBeInViewport({ ratio: 1 })
     const bounds = await reviewPages.evaluateAll((leaves) => leaves.map((leaf) => ({
       height: leaf.clientHeight,
       scrollHeight: leaf.scrollHeight,
+      overflowY: globalThis.getComputedStyle(leaf).overflowY,
       side: leaf.closest('.mm-journal-page') ? 'right' : 'left',
     })))
-    assert.deepEqual(bounds.map(({ side }) => side).sort(), ['left', 'right'])
-    assert.ok(bounds.every(({ height, scrollHeight }) => scrollHeight <= height + 1),
-      `Review leaves should fit at ${width}×${height}: ${JSON.stringify(bounds)}`)
+    assert.ok(bounds.length > 0 && bounds.every(({ side }) => side === 'left' || side === 'right'))
+    assert.ok(bounds.every(({ height: leafHeight, scrollHeight, overflowY }) => scrollHeight <= leafHeight + 1 || overflowY === 'auto'),
+      `Review content must fit or have its own scroll area at ${width}×${height}: ${JSON.stringify(bounds)}`)
     assert.ok(await page.evaluate(() => globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 1),
       `Review should fit the viewport at ${width}×${height}`)
   }
   await page.setViewportSize({ width: 1440, height: 900 })
   await settleJournalLayout(page)
+  await advanceChefReviewToSave(page)
   await assertJournalSemantics(page, 'AI Chef recipe review')
-  await expect(recipeTitle).toHaveValue('Egg and rice skillet')
   await expect(reviewLeaf.getByRole('textbox')).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Ingredients in this suggestion' })).toContainText('rice')
   await expect(reviewLeaf.getByText('2.5 out of 5', { exact: true })).toHaveCount(1)
-
-  const substitutions = reviewLeaf.getByRole('button', { name: 'Suggested substitutions' })
-  await substitutions.press('Enter')
-  const substitutionDialog = page.getByRole('dialog', { name: 'Suggested substitutions' })
-  await expect(substitutionDialog).toContainText('firm tofu')
-  await page.keyboard.press('Escape')
-  await expect(substitutionDialog).toBeHidden()
-  await expect(substitutions).toBeFocused()
-
-  await reviewLeaf.getByRole('button', { name: 'Full request' }).click()
-  const requestDialog = page.getByRole('dialog', { name: 'Your request' })
-  await expect(requestDialog.getByRole('listitem')).toHaveText(['rice', 'eggs'])
-  await expect(requestDialog).toContainText('quick, no frying')
-  await requestDialog.getByRole('button', { name: 'Done' }).click()
+  const optionalDetails = reviewLeaf.getByText('Optional details from Mori')
+  if (await optionalDetails.isVisible()) {
+    await optionalDetails.click()
+  } else {
+    for (const label of ['Your request', 'Suggested substitutions', 'Mori’s optional flavor estimates']) {
+      const detail = reviewLeaf.locator('summary').filter({ hasText: label })
+      if (await detail.isVisible()) await detail.click()
+    }
+  }
+  await expect(reviewLeaf.getByRole('region', { name: 'Suggested substitutions' }).first()).toContainText('firm tofu')
+  const request = reviewLeaf.getByRole('region', { name: 'Your request' })
+  await expect(request.getByRole('listitem')).toHaveText(['rice', 'eggs'])
+  await expect(request).toContainText('quick, no frying')
 
   const longTitle = 'Crispy egg and rice skillet with garlic, summer tomatoes, toasted sesame seeds, and fresh spring onions'
   const longNotes = 'Chill the rice overnight.\nFold the eggs in after the pan is hot.\n'.repeat(10)
+  await returnChefReviewToTitle(page)
   await page.getByRole('button', { name: 'Expand recipe title' }).click()
   const titleDialog = page.getByRole('dialog', { name: 'Recipe title' })
   await titleDialog.getByRole('textbox', { name: 'Full recipe title' }).fill(longTitle)
+  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-fe10-title-dialog-1440.png') })
   await titleDialog.getByRole('button', { name: 'Done' }).click()
   await expect(recipeTitle).toHaveValue(longTitle)
   const expandNotes = page.getByRole('button', { name: 'Expand notes' })
@@ -526,7 +608,10 @@ try {
   await expect(page.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue(longNotes)
   await page.getByLabel('Cooked date').fill('2026-10-19')
   await page.getByRole('combobox', { name: 'Rating' }).selectOption('4')
+  await advanceChefReviewToSave(page)
   await expect(reviewLeaf.getByRole('heading', { name: 'Recipe inspiration' })).toBeInViewport({ ratio: 1 })
+  await expect(page.locator('.mm-journal-page .mm-review-leaf')).toBeVisible()
+  await expect(page.locator('.mm-writing-blank-page')).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Suggested parent recipes' })).toContainText('Sunday fried rice')
   const firstParent = page.getByRole('checkbox', { name: /Sunday fried rice/ })
   const secondParent = page.getByRole('checkbox', { name: /Mori’s tomato rice/ })
@@ -547,16 +632,18 @@ try {
   assert.equal(draft.handoff.response.candidate_token, generated.candidate_token)
   assert.deepEqual(draft.handoff.selectedParentIds, [generated.parents[0].id])
 
-  await page.getByRole('button', { name: 'Next Pages' }).click()
-  const instruction = page.locator('textarea[name="instructions.0.text"]:not([disabled])')
+  const instruction = await returnChefReviewToMethod(page)
   await expect(instruction).toHaveValue('Warm the rice, then fold in the eggs.')
+  if (await save.isVisible()) await expect(instruction).toBeInViewport()
   await instruction.fill('Warm the rice first, then fold in the eggs.')
   assert.equal(recipeWrites.length, 0, 'Editing the review saved a recipe before explicit confirmation')
   assert.equal(lineageWrites.length, 0, 'Editing the review saved lineage before explicit confirmation')
+  await advanceChefReviewToSave(page)
 
-  for (const width of [1440, 768, 375, 320, 720]) {
-    await page.setViewportSize({ width, height: width === 720 ? 450 : 900 })
+  for (const [width, height] of [[1280, 720], [1440, 900], [768, 1024], [390, 844], [375, 800], [320, 900]].filter(([width]) => !desktopOnly || width >= 1100)) {
+    await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
+    await advanceChefReviewToSave(page)
     const layout = await page.evaluate(() => ({
       viewport: globalThis.innerWidth,
       scrollWidth: globalThis.document.documentElement.scrollWidth,
@@ -596,6 +683,37 @@ try {
   ])
   const clearedDraft = await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), `moris-mix:ai-chef:v1:${userId}`)
   assert.equal(clearedDraft.handoff, null, 'A confirmed save did not clear the unsaved review handoff')
+  const repeatPantry = page.getByRole('button', { name: 'Use this pantry again', exact: true })
+  for (const [width, height] of [[1280, 720], [390, 844]].filter(([width]) => !desktopOnly || width >= 1100)) {
+    await page.setViewportSize({ width, height })
+    await settleJournalLayout(page)
+    await repeatPantry.scrollIntoViewIfNeeded()
+    await expect(repeatPantry).toBeVisible()
+    await expect(repeatPantry).toBeInViewport({ ratio: 1 })
+    const buttonLayout = await repeatPantry.evaluate((button) => ({
+      right: button.getBoundingClientRect().right,
+      scrollWidth: button.scrollWidth,
+      clientWidth: button.clientWidth,
+      scrollHeight: button.scrollHeight,
+      clientHeight: button.clientHeight,
+    }))
+    assert.ok(buttonLayout.right <= width + 1 && buttonLayout.scrollWidth <= buttonLayout.clientWidth && buttonLayout.scrollHeight <= buttonLayout.clientHeight,
+      `Repeat-pantry action must fit at ${width}×${height}: ${JSON.stringify(buttonLayout)}`)
+    assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true,
+      `AI Chef review horizontal overflow after save at ${width}px`)
+    await page.screenshot({ path: path.join(os.tmpdir(), `moris-fe10-saved-review-repeat-pantry-${width}.png`) })
+  }
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await settleJournalLayout(page)
+  await repeatPantry.click()
+  await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeVisible()
+  const reusedPantry = page.getByRole('region', { name: 'Pantry list, 2 items' })
+  await expect(reusedPantry).toContainText('rice')
+  await expect(reusedPantry).toContainText('eggs')
+  await page.getByRole('button', { name: 'Next page: Cooking preferences' }).click()
+  await expect(page.getByRole('textbox', { name: /^Cooking preferences/ })).toHaveValue('quick, no frying')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await settleJournalLayout(page)
   process.stdout.write('AI Chef browser acceptance Scenario A passed: keyboard-selected parents, recipe-first save, and confirmed lineage completion.\n')
   await beginScenario(page, origin, 'no-parents')
   await expect(page.getByRole('region', { name: 'Suggested parent recipes' })).toContainText('There are no saved recipes to suggest yet.')
@@ -635,7 +753,9 @@ try {
   const retriedClearAttempts = await page.evaluate(() => globalThis.__getChefClearAttempts())
   assert.ok(retriedClearAttempts > failedClearAttempts, 'Retry did not make a real session storage write')
 
+  await returnChefReviewToTitle(page)
   await page.getByLabel('Recipe title').fill('Edited after storage recovered')
+  await advanceChefReviewToSave(page, 'Save changes')
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
   assert.equal(recipeWrites.length, 1, 'Editing after cleanup retry created another recipe')
@@ -660,14 +780,16 @@ try {
   await expect(page.getByRole('heading', { name: 'Your recipe is saved.' })).toBeVisible()
   await expect(page.getByText('Recipe saved. Parent links still need attention.')).toBeVisible()
   assert.equal(recipeWrites.length, 1, 'Reload recovery created a second recipe')
+  await returnChefReviewToTitle(page)
   await page.getByLabel('Recipe title').fill('Edited after recovery')
+  await advanceChefReviewToSave(page, 'Save changes')
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByText('Recipe saved. Parent links still need attention.')).toBeVisible()
   assert.equal(recipeUpdates.length, 1, 'Editing a recovered recipe did not use its existing ID')
   assert.equal(recipeUpdates[0].recipeId, partialChildId)
   assert.equal(recipeUpdates[0].body.title, 'Edited after recovery')
   assert.equal(recipeWrites.length, 1, 'Editing a recovered recipe created another child')
-  await page.getByRole('button', { name: 'Check and retry parent links' }).click()
+  await page.getByRole('button', { name: 'Retry recipe links' }).click()
   await expect(page.getByText('Recipe and selected parent links saved.')).toBeVisible()
   assert.equal(recipeWrites.length, 1, 'Lineage retry created a second recipe')
   assert.equal(lineageWrites.length, 2)
@@ -681,7 +803,7 @@ try {
   await page.getByRole('button', { name: 'Save recipe' }).click()
   await expect(page.getByRole('alert')).toContainText('authorization for its parent links expired')
   await expect(page.getByText('Recipe saved. Parent links still need attention.')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Check and retry parent links' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Retry recipe links' })).toBeVisible()
   assert.equal(recipeWrites.length, 1)
   assert.equal(lineageWrites.length, 1)
   assert.equal(requests.filter((request) => request.path.endsWith('/lineage') && request.method === 'GET').length, 0)
@@ -689,7 +811,14 @@ try {
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Your recipe is saved.' })).toBeVisible()
   assert.equal(recipeWrites.length, 1, 'Expired-token recovery created a second recipe')
-  process.stdout.write('AI Chef browser acceptance Scenario D passed: expired authorization preserves the saved recipe without retry or regeneration.\n')
+  await page.getByRole('button', { name: 'Retry recipe links' }).click()
+  await expect(page.getByRole('button', { name: 'Retry recipe links' })).toHaveCount(0)
+  await expect(page.getByText('Recipe and selected parent links saved.')).toBeVisible()
+  assert.equal(recipeWrites.length, 1, 'Authorization renewal created a second recipe')
+  assert.equal(lineageWrites.length, 2)
+  assert.equal(lineageWrites[1].childRecipeId, scenarioRecipeIds.expired)
+  assert.equal(requests.filter((request) => request.path === '/functions/v1/generate-recipe').length, 1)
+  process.stdout.write('AI Chef browser acceptance Scenario D passed: expired authorization renews links on the same saved recipe without regeneration.\n')
 
   await beginScenario(page, origin, 'uncertain')
   await page.getByRole('checkbox', { name: /Sunday fried rice/ }).check()
@@ -705,33 +834,61 @@ try {
   process.stdout.write('AI Chef browser acceptance Scenario E passed: lost lineage response reconciled through GET without a duplicate POST.\n')
   await page.evaluate(() => globalThis.sessionStorage.clear())
   resetScenario('generation-failure')
+  await page.setViewportSize({ width: 1280, height: 720 })
   await page.goto(`${origin}app/chef`)
   await page.getByRole('textbox', { name: 'Pantry ingredient' }).fill('rice')
   await page.getByRole('textbox', { name: 'Pantry ingredient' }).press('Enter')
-  await page.getByRole('button', { name: 'Next page', exact: true }).click()
-  await page.getByRole('textbox', { name: /^Cooking preferences/ }).fill('keep this preference')
+  await page.locator('.mm-ai-chef__quick-add summary').click()
+  await page.getByRole('button', { name: 'eggs', exact: true }).click({ trial: true })
+  const preferencesJump = page.getByRole('button', { name: /^Next page/ })
+  await expect(preferencesJump).toBeInViewport({ ratio: 1 })
+  await expect(preferencesJump).toContainText('Cooking preferences')
+  await preferencesJump.press('Enter')
+  await expect(preferences).toBeFocused()
+  await preferences.fill('keep this preference')
   await page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
   await expect(page.getByRole('alert')).toContainText('rate-limited')
-  await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Please wait to retry', exact: true })).toBeDisabled()
   await expect(page.getByRole('textbox', { name: /^Cooking preferences/ })).toHaveValue('keep this preference')
-  await page.getByRole('button', { name: 'Previous page', exact: true }).click()
+  await page.getByRole('button', { name: /^Previous page/ }).click()
   await expect(page.getByRole('region', { name: 'Pantry list, 1 item' })).toContainText('rice')
   await expect(page.getByText('private provider detail')).toHaveCount(0)
   assert.equal(recipeWrites.length, 0)
   activeScenario = 'success'
-  await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeEnabled()
-  await page.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Retry recipe suggestion', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Retry recipe suggestion', exact: true }).click()
   await expect(page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
   const attempts = requests.filter((request) => request.path === '/functions/v1/generate-recipe')
   assert.equal(attempts.length, 2)
   assert.deepEqual(attempts[0].body, attempts[1].body)
   assert.equal(recipeWrites.length, 0)
   process.stdout.write('FE-13 generation failure: server cooldown, retained inputs, same-request retry and unsaved preview passed.\n')
+  resetScenario('generation-failure')
+  const fallbackPage = await context.newPage()
+  fallbackPage.on('pageerror', (error) => errors.push(error.message))
+  await fallbackPage.goto(`${origin}app/chef`)
+  const fallbackPantry = fallbackPage.getByRole('textbox', { name: 'Pantry ingredient' })
+  await fallbackPantry.fill('rice')
+  await fallbackPantry.press('Enter')
+  await fallbackPage.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
+  await expect(fallbackPage.getByRole('alert')).toContainText('rate-limited')
+  await fallbackPage.getByRole('link', { name: 'Write recipe manually' }).click()
+  await expect(fallbackPage).toHaveURL(`${origin}app/recipes/new`)
+  const manualForm = fallbackPage.getByRole('form', { name: 'Create recipe' })
+  await expect(manualForm.getByRole('button', { name: 'Edit ingredient 1: rice' })).toBeVisible()
+  const manualBack = fallbackPage.getByRole('button', { name: 'Back to AI Chef' })
+  await expect(manualBack).toBeVisible()
+  assert.equal(await manualBack.evaluate(button => button.form?.getAttribute('aria-label')), 'Create recipe', 'The persistent notebook footer must retain native form ownership')
+  assert.equal(recipeWrites.length, 0, 'Continuing manually saved a recipe without confirmation')
+  await fallbackPage.close()
+  process.stdout.write('AI Chef recovery passed: manual continuation carried pantry items into the editable recipe form.\n')
   await page.setViewportSize({ width: 1366, height: 768 })
   await beginScenario(page, origin, 'expanded-review')
   const allIngredients = page.getByRole('button', { name: 'All suggested ingredients (7)' })
   await allIngredients.click()
   const ingredientDialog = page.getByRole('dialog', { name: 'Ingredients in this suggestion' })
+  await ingredientDialog.waitFor()
+  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-fe10-ingredients-dialog-1366.png') })
   await expect(ingredientDialog.getByRole('listitem')).toHaveText(expandedSuggestion.recipe.ingredients.map(({ name }) => name))
   await ingredientDialog.getByRole('button', { name: 'Done' }).click()
   await expect(allIngredients).toBeFocused()
@@ -739,11 +896,13 @@ try {
   const journalChooser = page.getByRole('button', { name: 'Choose journal recipes (3)' })
   await journalChooser.click()
   const journalDialog = page.getByRole('dialog', { name: 'From your journal' })
+  await journalDialog.waitFor()
+  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-fe10-journal-dialog-1366.png') })
   await expect(journalDialog.getByRole('checkbox')).toHaveCount(3)
   await journalDialog.getByRole('checkbox', { name: new RegExp(extraParent.title) }).check()
   await page.keyboard.press('Escape')
   await expect(journalChooser).toBeFocused()
-  await expect(page.getByText('1 of 10 parent recipes selected.')).toBeVisible()
+  await expect(page.getByText('1 selected · up to 10 recipes.')).toBeVisible()
   await journalChooser.click()
   await expect(journalDialog.getByRole('checkbox', { name: new RegExp(extraParent.title) })).toBeChecked()
   await journalDialog.getByRole('button', { name: 'Done' }).click()

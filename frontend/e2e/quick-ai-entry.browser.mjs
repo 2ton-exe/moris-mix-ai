@@ -2,7 +2,7 @@
 // This suite never contacts a hosted Supabase project or writes recipe records.
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { createServer as createHttpServer } from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
@@ -12,6 +12,8 @@ import { chromium, expect } from '@playwright/test'
 import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
 import { settleJournalLayout } from './journal-geometry.mjs'
+
+const desktopOnly = process.env.MORI_DESKTOP_ONLY === 'true'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const userId = '33333333-3333-4333-8333-333333333333'
@@ -34,6 +36,8 @@ const outputDir = await mkdtemp(path.join(os.tmpdir(), 'moris-fe08-'))
 let appOrigin
 let apiOrigin
 let extractionMode = 'success'
+let releaseExtraction
+const extractionGate = new Promise(resolve => { releaseExtraction = resolve })
 const requests = []
 const recipeWrites = []
 
@@ -142,7 +146,7 @@ async function handleApiRequest(request, response) {
     return
   }
   if (extractionMode === 'slow-success') {
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 500))
+    await extractionGate
     sendJson(request, response, 200, { recipe })
     return
   }
@@ -198,6 +202,48 @@ try {
 
   await page.goto(`${origin}app`)
   await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible()
+  if (process.env.MORI_RECOVERY_ONLY === 'true') {
+    for (const mode of ['invalid', 'network', 'provider-rate-limit', 'quota']) {
+      for (const [width, height] of [[1100, 640], [1280, 720], [1440, 900]]) {
+        extractionMode = mode
+        const recoveryPage = await context.newPage()
+        recoveryPage.on('pageerror', error => errors.push(error.message))
+        await recoveryPage.setViewportSize({ width, height })
+        await recoveryPage.goto(`${origin}app/quick-entry`)
+        await recoveryPage.getByRole('textbox', { name: 'Cooking notes' }).fill('Beans with garlic and a little salt.')
+        await recoveryPage.getByRole('button', { name: 'Organize my notes' }).click()
+        await expect(recoveryPage.getByRole('alert')).toBeVisible()
+        await recoveryPage.evaluate(() => globalThis.document.fonts.ready)
+        await settleJournalLayout(recoveryPage)
+        const metrics = await recoveryPage.evaluate(() => {
+          const sheet = globalThis.document.querySelector('.mm-quick-ai__sheet')
+          const paper = globalThis.document.querySelector('.mm-journal-page').getBoundingClientRect()
+          const facing = globalThis.document.querySelector('.mm-journal-flyleaf').getBoundingClientRect()
+          return {
+            paper: paper.toJSON(), facing: facing.toJSON(), sheet: sheet.getBoundingClientRect().toJSON(),
+            clientHeight: sheet.clientHeight, scrollHeight: sheet.scrollHeight,
+            documentHeight: globalThis.document.documentElement.scrollHeight,
+            blocks: Array.from(sheet.querySelectorAll('form, .mm-quick-ai__field, .mm-quick-ai__textarea, .mm-quick-ai__error, .mm-quick-ai__cooldown, .mm-quick-ai__actions'), element => ({
+              className: element.className, rect: element.getBoundingClientRect().toJSON(),
+              display: globalThis.getComputedStyle(element).display, gap: globalThis.getComputedStyle(element).gap,
+            })),
+            actions: Array.from(sheet.querySelectorAll('.mm-quick-ai__actions > *'), element => element.getBoundingClientRect().toJSON()),
+          }
+        })
+        await recoveryPage.screenshot({ path: path.join(outputDir, `recovery-${mode}-${width}.png`), animations: 'disabled' })
+        await writeFile(path.join(outputDir, `recovery-${mode}-${width}.json`), JSON.stringify(metrics, null, 2))
+        assert.ok(Math.abs(metrics.paper.bottom - metrics.facing.bottom) <= 2 && metrics.documentHeight <= height + 2,
+          `${mode} ${width}: recovery must preserve paper and viewport bounds`)
+        assert.ok(metrics.scrollHeight <= metrics.clientHeight + 1,
+          `${mode} ${width}: ordinary recovery should fit its sheet (${metrics.scrollHeight}/${metrics.clientHeight}); artifacts ${outputDir}`)
+        assert.ok(metrics.actions.every(action => action.height >= 44 && action.bottom <= metrics.paper.bottom), `${mode} ${width}: actions fit the paper`)
+        await recoveryPage.close()
+      }
+    }
+    assert.deepEqual(errors, [])
+    await context.close()
+    process.stdout.write(`Twelve desktop recovery states passed. Screenshots and geometry: ${outputDir}\n`)
+  } else {
   await page.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
   await expect(page).toHaveURL(`${origin}app/quick-entry`)
   await expect(page.getByRole('heading', { name: 'Quick AI Entry' })).toBeVisible()
@@ -243,12 +289,13 @@ try {
   await storageFailurePage.getByRole('button', { name: 'Log out' }).click()
   const logoutDialog = storageFailurePage.getByRole('alertdialog', { name: 'Leave without saving your notes?' })
   await expect(logoutDialog).toBeVisible()
+  await storageFailurePage.screenshot({ path: path.join(outputDir, 'desktop-unsaved-notes-dialog.png'), animations: 'disabled' })
   await expect(logoutDialog).toContainText('Copy your notes before leaving')
   assert.equal(requests.filter((request) => request.path === '/auth/v1/logout').length, logoutCountBeforeWarning, 'Log out ran before the user confirmed leaving')
   await logoutDialog.getByRole('button', { name: 'Keep Editing' }).click()
   await expect(storageFailureNotes).toHaveValue(lostNotes)
 
-  for (const width of [1440, 375, 320]) {
+  for (const width of [1440, 375, 320].filter(width => !desktopOnly || width >= 1100)) {
     await storageFailurePage.setViewportSize({ width, height: 900 })
     await settleJournalLayout(storageFailurePage)
     await expect(storageWarning).toBeVisible()
@@ -308,8 +355,11 @@ try {
   await expect(page.getByText('Unsaved preview')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Review recipe draft' })).toBeVisible()
   await page.getByRole('button', { name: 'Previous page' }).click()
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
   await expect(notes).toHaveValue(sourceNotes)
+  await expect(page.getByRole('button', { name: 'Next page' })).toBeVisible()
   await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Garlic soy chicken' })).toBeFocused()
   assert.ok(requests.some((request) => request.path === '/functions/v1/extract-recipe' && request.authorization === 'Bearer quick-ai-test-access'))
   assert.deepEqual(requests.find((request) => request.path === '/functions/v1/extract-recipe' && request.body?.notes === sourceNotes)?.body, { notes: sourceNotes })
@@ -336,6 +386,77 @@ try {
   await expect(page).toHaveURL(`${origin}app/quick-entry/review`)
   await expect(page.getByRole('heading', { name: 'Review your recipe' })).toBeVisible()
   await expect(page.getByLabel('Recipe title')).toHaveValue('Garlic soy chicken')
+  const draftHelp = page.getByText('Draft details', { exact: true })
+  const draftAnswer = page.getByText(/Return to this tab with the same account/)
+  await expect(draftAnswer).toBeHidden()
+  await draftHelp.press('Enter')
+  await expect(draftAnswer).toBeVisible()
+  await draftHelp.press('Space')
+  await expect(draftAnswer).toBeHidden()
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await settleJournalLayout(page)
+  const reviewIngredient = page.getByRole('group', { name: 'Ingredient 1', exact: true })
+  const name = reviewIngredient.getByText('chicken', { exact: true })
+  const lineCount = await name.evaluate((element) => {
+    const text = element.ownerDocument.createRange()
+    text.selectNodeContents(element)
+    return text.getClientRects().length
+  })
+  assert.equal(lineCount, 1, 'A short ingredient name must fit on one line beside the review controls')
+  await expect(reviewIngredient.getByRole('button', { name: 'Mark as reviewed: ingredient 1' })).toBeInViewport()
+  await page.screenshot({ path: path.join(outputDir, 'desktop-extracted-review-1280.png') })
+  for (const [width, height] of [[1100, 640], [1280, 720], [1440, 900]]) {
+    await page.setViewportSize({ width, height })
+    await settleJournalLayout(page)
+    const reference = page.getByRole('region', { name: "Mori's extraction notes" })
+    const originalNotes = reference.getByText('Original cooking notes', { exact: true })
+    const details = reference.getByText('Draft details', { exact: true })
+    await page.screenshot({ path: path.join(outputDir, `extraction-reference-${width}-closed.png`), animations: 'disabled' })
+    await expect(page.getByLabel('Recipe title')).toBeInViewport({ ratio: 1 })
+    await expect(page.getByLabel('Cooked date')).toBeInViewport({ ratio: 1 })
+    await expect(page.getByRole('group', { name: 'Rating', exact: true })).toBeInViewport({ ratio: 1 })
+    assert.ok((await originalNotes.boundingBox()).height >= 44)
+    await originalNotes.press('Enter')
+    await expect(reference.locator('blockquote')).toHaveText(sourceNotes)
+    await expect(reference.locator('blockquote')).toBeInViewport({ ratio: 1 })
+    await page.screenshot({ path: path.join(outputDir, `extraction-reference-${width}-source.png`), animations: 'disabled' })
+    await originalNotes.press('Space')
+    await details.press('Enter')
+    await expect(reference.getByText('Flavor estimates are preview only.')).toBeVisible()
+    await page.screenshot({ path: path.join(outputDir, `extraction-reference-${width}-details.png`), animations: 'disabled' })
+    await details.press('Space')
+  }
+  const longNotesPage = await context.newPage()
+  longNotesPage.on('pageerror', error => errors.push(error.message))
+  const longNotes = 'Toast the garlic gently and taste before adding soy sauce.\n'.repeat(30) + 'Keep this final cooking observation.'
+  await longNotesPage.addInitScript(({ key, notes, recipe }) => {
+    globalThis.sessionStorage.setItem(key, JSON.stringify({ notes, blockedUntil: null, blockedReason: null,
+      handoff: { sourceNotes: notes, recipe, saved: false }, reviewDraft: null }))
+  }, { key: `moris-mix:quick-ai-entry:v1:${userId}`, notes: longNotes, recipe })
+  for (const [width, height] of [[1100, 640], [1280, 720], [1440, 900]]) {
+    await longNotesPage.setViewportSize({ width, height })
+    await longNotesPage.goto(`${origin}app/quick-entry/review`)
+    await settleJournalLayout(longNotesPage)
+    const reference = longNotesPage.getByRole('region', { name: "Mori's extraction notes" })
+    const book = longNotesPage.locator('.mm-journal-book')
+    const before = await book.boundingBox()
+    await reference.getByText('Original cooking notes', { exact: true }).press('Enter')
+    const source = reference.locator('blockquote')
+    await expect(source).toHaveText(longNotes)
+    await source.focus()
+    const referenceBody = reference.locator('.mm-extraction-notes__references')
+    await referenceBody.evaluate(element => element.scrollTo({ top: element.scrollHeight, behavior: 'instant' }))
+    assert.ok(await referenceBody.evaluate(element => element.scrollTop > 0), 'Long original notes remain fully scrollable')
+    await reference.getByText('Draft details', { exact: true }).press('Enter')
+    const after = await book.boundingBox()
+    assert.ok(Math.abs(before.height - after.height) < 1, 'Opening references must not resize the notebook')
+    assert.ok(await longNotesPage.evaluate(() => globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 1),
+      'Long source and draft details must remain inside the desktop notebook')
+    await longNotesPage.screenshot({ path: path.join(outputDir, `extraction-reference-${width}-long.png`), animations: 'disabled' })
+  }
+  await longNotesPage.close()
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await settleJournalLayout(page)
   await page.getByRole('button', { name: /^Edit ingredient 1:/ }).click()
   await expect(page.getByLabel('Ingredient 1 amount description (optional)')).toHaveValue('some')
   const quantity = await page.getByLabel('Ingredient 1 quantity').boundingBox()
@@ -343,35 +464,35 @@ try {
   assert.ok(quantity && unit && Math.abs(quantity.y - unit.y) < 1 && Math.abs(quantity.width - unit.width) < 1,
     `Quantity and unit fields share a row and use equal widths: ${JSON.stringify({ quantity, unit })}`)
   await expect(page.getByText('AI suggested · Needs review')).toBeVisible()
-  await expect(page.getByText(/different wording: chicken/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save recipe' })).toHaveCount(0)
-  await expect(page.getByLabel('Rating')).toHaveValue('')
+  await expect(page.getByRole('group', { name: 'Rating' }).getByRole('radio', { checked: true })).toHaveCount(0)
   await expect(page.getByLabel('Cooked date')).toHaveValue('')
   await expect(page.getByRole('textbox', { name: 'Notes' })).toHaveValue('')
   assert.equal(recipeWrites.length, 0, 'Opening the extracted preview created a recipe')
-  await page.getByText('Original cooking notes').click()
-  await expect(page.locator('blockquote')).toHaveText(sourceNotes)
-  await page.getByText("Flavor estimates", { exact: true }).click()
-  await expect(page.getByText(/preview only/)).toBeVisible()
-  const lastFlavor = page.getByText('spicy', { exact: true })
-  await lastFlavor.scrollIntoViewIfNeeded()
-  await expect(lastFlavor).toBeInViewport()
   await expect(page.getByRole('button', { name: 'Next: Instructions' })).toBeInViewport()
   await page.screenshot({ path: path.join(outputDir, 'desktop-extracted-recipe-review.png'), fullPage: true })
 
   await page.getByRole('button', { name: 'Next: Instructions' }).click()
   const turningSheet = page.locator('[data-journal-page-turn]')
   await expect(turningSheet).toHaveAttribute('data-direction', 'forward')
-  await expect(turningSheet.locator('[data-mori-paper-actor] > :is(svg, img):visible')).toBeVisible()
+  await expect(turningSheet.locator('[data-mori-paper-actor]')).toHaveCount(0)
   await expect(turningSheet).toHaveCount(0)
   await expect(page.locator('textarea[name="instructions.0.text"]:not([disabled])')).toHaveValue('Boil the chicken with garlic.')
+  await expect(page.getByText('Original cooking notes', { exact: true })).toBeVisible()
+  await page.getByText('Original cooking notes', { exact: true }).click()
+  await expect(page.locator('blockquote')).toHaveText(sourceNotes)
+  await page.getByText('Draft details', { exact: true }).click()
+  await expect(page.getByText(/preview only/)).toBeVisible()
+  const lastFlavor = page.getByText('spicy', { exact: true })
+  await lastFlavor.scrollIntoViewIfNeeded()
+  await expect(lastFlavor).toBeInViewport()
   await page.getByRole('button', { name: 'Previous: Recipe details and Ingredients' }).click()
   await expect(page.locator('[data-journal-turn-snapshot]')).toHaveCount(0)
   await page.getByLabel('Recipe title').fill('Garlic soy chicken, corrected')
   await page.getByLabel('Ingredient 1 quantity').fill('1.5')
   assert.equal(recipeWrites.length, 0, 'Editing the extracted preview created a recipe')
 
-  for (const width of [1440, 768, 375, 320]) {
+  for (const width of [1440, 768, 375, 320].filter(width => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height: 900 })
     await settleJournalLayout(page)
     await expect(page.getByLabel('Ingredient 1 quantity')).toHaveValue('1.5')
@@ -393,7 +514,9 @@ try {
   await page.getByRole('button', { name: 'Next: Instructions' }).click()
   await page.getByRole('button', { name: 'Save recipe' }).click()
   await expect(page.getByText('Recipe saved.')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Edit saved recipe' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your recipe is saved.' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Saved recipe', exact: true })
+    .getByRole('link', { name: 'Open saved recipe' })).toBeVisible()
   assert.equal(recipeWrites.length, 1, 'Explicit Save did not create exactly one recipe')
   assert.equal(recipeWrites[0].authorization, 'Bearer quick-ai-test-access')
   assert.equal(recipeWrites[0].body.title, 'Garlic soy chicken, corrected')
@@ -407,15 +530,53 @@ try {
   const consumedDraft = await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), accountDraftKey)
   assert.equal(consumedDraft.handoff, null, 'Successful Save did not consume the unsaved handoff')
   assert.equal(consumedDraft.notes, sourceNotes, 'Successful Save cleared the original cooking notes')
-  await page.getByRole('button', { name: 'Back to Mori notes' }).click()
-  await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toHaveValue(sourceNotes)
+  const repeatNotes = page.getByRole('button', { name: 'Use these notes again', exact: true })
+  for (const [width, height] of [[1280, 720], [390, 844]].filter(([width]) => !desktopOnly || width >= 1100)) {
+    await page.setViewportSize({ width, height })
+    await settleJournalLayout(page)
+    await repeatNotes.scrollIntoViewIfNeeded()
+    await expect(repeatNotes).toBeVisible()
+    await expect(repeatNotes).toBeInViewport({ ratio: 1 })
+    const buttonLayout = await repeatNotes.evaluate((button) => ({
+      right: button.getBoundingClientRect().right,
+      scrollWidth: button.scrollWidth,
+      clientWidth: button.clientWidth,
+      scrollHeight: button.scrollHeight,
+      clientHeight: button.clientHeight,
+    }))
+    assert.ok(buttonLayout.right <= width + 1 && buttonLayout.scrollWidth <= buttonLayout.clientWidth && buttonLayout.scrollHeight <= buttonLayout.clientHeight,
+      `Repeat-notes action must fit at ${width}×${height}: ${JSON.stringify(buttonLayout)}`)
+    assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true,
+      `Recipe review horizontal overflow after save at ${width}px`)
+    await page.screenshot({ path: path.join(outputDir, `saved-review-repeat-notes-${width}.png`) })
+  }
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await settleJournalLayout(page)
+  await repeatNotes.click()
+  const returnedNotes = page.getByRole('textbox', { name: 'Cooking notes' })
+  await expect(returnedNotes).toHaveValue(sourceNotes)
 
   extractionMode = 'network'
-  await notes.fill('beans, cumin, lemon, a splash of water')
+  await returnedNotes.fill('beans, cumin, lemon, a splash of water')
   await page.getByRole('button', { name: 'Organize my notes' }).click()
   await expect(page.getByRole('alert')).toContainText('Mori could not reach the kitchen')
-  await expect(notes).toHaveValue('beans, cumin, lemon, a splash of water')
+  await expect(returnedNotes).toHaveValue('beans, cumin, lemon, a splash of water')
+  await page.screenshot({ path: path.join(outputDir, 'quick-entry-network-error-1280.png'), animations: 'disabled' })
   extractionMode = 'success'
+  await settleJournalLayout(page)
+  const retryLayout = await page.evaluate(() => {
+    const retry = globalThis.document.querySelector('.mm-quick-ai__actions button')
+    const footer = globalThis.document.querySelector('.mm-journal-page-footer')
+    return {
+      retryBottom: retry.getBoundingClientRect().bottom,
+      cardBottom: globalThis.document.querySelector('.mm-quick-ai__sheet').getBoundingClientRect().bottom,
+      footerTop: footer.getBoundingClientRect().top,
+    }
+  })
+  assert.ok(retryLayout.retryBottom <= retryLayout.cardBottom + 1,
+    `Retry action must stay inside its paper at a short viewport: ${JSON.stringify(retryLayout)}`)
+  assert.ok(retryLayout.retryBottom <= retryLayout.footerTop + 1,
+    `Retry action must stay above the page controls at a short viewport: ${JSON.stringify(retryLayout)}`)
   await page.getByRole('button', { name: 'Retry extraction' }).click()
   await expect(page.getByRole('heading', { name: 'Garlic soy chicken' })).toBeVisible()
   assert.deepEqual(requests.filter((request) => request.path === '/functions/v1/extract-recipe').slice(-2).map((request) => request.body), [
@@ -423,10 +584,12 @@ try {
   ])
 
   extractionMode = 'provider'
+  await page.getByRole('button', { name: 'Previous page' }).click()
   await notes.fill('slow beans with garlic')
   await page.getByRole('button', { name: 'Organize my notes' }).click()
   await expect(page.getByRole('alert')).toContainText('Mori could not organize those notes just now')
   await expect(page.getByText('private provider detail')).toHaveCount(0)
+  await page.screenshot({ path: path.join(outputDir, 'quick-entry-provider-error-1280.png'), animations: 'disabled' })
 
   extractionMode = 'provider-rate-limit'
   const providerPage = await context.newPage()
@@ -442,7 +605,12 @@ try {
   const providerWait = Number((await providerCooldown.textContent()).match(/Please wait (\d+) seconds/)[1])
   assert.ok(providerWait > 30 && providerWait <= 60, `Expected the exposed 60-second provider cooldown, got ${providerWait}`)
   await expect(providerNotes).toHaveValue('keep these notes while the provider cools down')
+  await providerPage.screenshot({ path: path.join(outputDir, 'quick-entry-provider-cooldown.png'), animations: 'disabled' })
   await expect(providerPage.getByText('private provider detail')).toHaveCount(0)
+  await providerPage.getByRole('link', { name: 'Write manually with these notes' }).click()
+  await expect(providerPage).toHaveURL(`${origin}app/recipes/new`)
+  await expect(providerPage.getByRole('textbox', { name: 'Notes' })).toHaveValue('keep these notes while the provider cools down')
+  await expect(providerPage.getByRole('button', { name: 'Back to cooking notes' })).toBeVisible()
   await providerPage.close()
 
   extractionMode = 'invalid'
@@ -450,6 +618,35 @@ try {
   await page.getByRole('button', { name: 'Organize my notes' }).click()
   await expect(page.getByRole('alert')).toContainText("Mori couldn't validate the recipe")
   await expect(notes).toHaveValue('notes that receive a malformed result')
+  for (const [width, height] of [[1440, 900], [1280, 720], [1100, 640]].filter(([width]) => !desktopOnly || width >= 1100)) {
+    await page.setViewportSize({ width, height })
+    await settleJournalLayout(page)
+    await expect(notes).toHaveValue('notes that receive a malformed result')
+    const error = page.getByRole('alert')
+    const retry = page.getByRole('button', { name: 'Retry extraction' })
+    await expect(error).toBeInViewport({ ratio: 1 })
+    await expect(retry).toBeInViewport({ ratio: 1 })
+    const messageBox = await error.boundingBox()
+    const buttonBox = await retry.boundingBox()
+    assert.ok(messageBox.x + messageBox.width < buttonBox.x, `Recovery guidance precedes the editable notes on the facing leaf at ${width}×${height}`)
+    assert.ok(await error.evaluate(element => Boolean(element.closest('.mm-journal-flyleaf'))), 'Desktop recovery uses the facing paper')
+    await expect.poll(async () => {
+      const art = await page.locator('.mori-pet-trigger .mm-mori').boundingBox()
+      const message = await error.boundingBox()
+      return art && message && (art.x + art.width <= message.x || message.x + message.width <= art.x ||
+        art.y + art.height <= message.y || message.y + message.height <= art.y)
+    }, { message: `Automatic Mori docking must not cover failure feedback at ${width}×${height}` }).toBe(true)
+    await retry.click({ trial: true })
+    assert.ok(await page.locator('.mm-quick-ai__sheet').evaluate(element => element.scrollHeight <= element.clientHeight + 1),
+      `Ordinary failure feedback must fit without inner scrolling at ${width}×${height}`)
+    assert.ok(await page.evaluate(() => {
+      const paper = globalThis.document.querySelector('.mm-journal-page').getBoundingClientRect()
+      const facing = globalThis.document.querySelector('.mm-journal-flyleaf').getBoundingClientRect()
+      return Math.abs(paper.bottom - facing.bottom) <= 2 && globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 2
+    }), `Recovery must preserve equal paper bounds at ${width}×${height}`)
+    await page.screenshot({ path: path.join(outputDir, `quick-entry-invalid-result-${width}.png`), animations: 'disabled' })
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
   await expect(page.getByRole('heading', { name: 'Garlic soy chicken' })).toHaveCount(0)
 
   extractionMode = 'quota'
@@ -459,6 +656,7 @@ try {
   await expect(page.getByRole('button', { name: 'Please wait to retry' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Retry extraction' })).toHaveCount(0)
   await expect(page.getByText('private quota detail')).toHaveCount(0)
+  await page.screenshot({ path: path.join(outputDir, 'quick-entry-quota-1440.png'), animations: 'disabled' })
 
   await page.getByRole('link', { name: 'Back to journal' }).click()
   await expect(page).toHaveURL(`${origin}app`)
@@ -466,7 +664,7 @@ try {
   await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toHaveValue('curry notes that remain after quota failure')
   await expect(page.getByRole('button', { name: 'Please wait to retry' })).toBeDisabled()
 
-  for (const width of [1440, 768, 375, 320]) {
+  for (const width of [1440, 768, 375, 320].filter(width => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height: 900 })
     await settleJournalLayout(page)
     await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeVisible()
@@ -526,16 +724,22 @@ try {
   await reducedMotionPage.goto(`${origin}app/quick-entry`)
   await reducedMotionPage.getByRole('textbox', { name: 'Cooking notes' }).fill('notes prepared with reduced motion enabled')
   extractionMode = 'slow-success'
+  const previousExtractions = requests.filter(request => request.path === '/functions/v1/extract-recipe').length
   await reducedMotionPage.getByRole('button', { name: 'Organize my notes' }).click()
   const loadingMori = reducedMotionPage.getByRole('group', { name: 'Mori companion' })
   await expect(loadingMori).toHaveAttribute('data-activity', 'working')
   await expect(loadingMori).toBeVisible()
   await expect(loadingMori.locator('.mm-mori')).not.toHaveAttribute('data-animated', 'true')
+  await expect.poll(() => requests.filter(request => request.path === '/functions/v1/extract-recipe').length).toBe(previousExtractions + 1)
+  await reducedMotionPage.screenshot({ path: path.join(outputDir, 'quick-entry-pending-reduced.png'), animations: 'disabled' })
+  releaseExtraction()
   await expect(reducedMotionPage.getByRole('heading', { name: 'Garlic soy chicken' })).toBeVisible()
   assert.deepEqual(errors, [])
   await context.close()
-  process.stdout.write(`Quick AI Entry and FE-09 authenticated extraction/review, validation, refresh recovery, explicit-save-only persistence, consumed-handoff clearing, notes/flavor metadata, failure recovery, keyboard focus, page turns, reduced motion, 320/375/768/1440px layouts, and 200% equivalent reflow passed. Screenshots: ${outputDir}\n`)
+  process.stdout.write(`Quick AI Entry and FE-09 authenticated extraction/review, validation, refresh recovery, explicit-save-only persistence, consumed-handoff clearing, notes/flavor metadata, failure recovery, keyboard focus, page turns, reduced motion, ${desktopOnly ? 'desktop' : '320/375/768/1440px'} layouts, and 200% equivalent reflow passed. Screenshots: ${outputDir}\n`)
+  }
 } finally {
+  releaseExtraction()
   await browser?.close()
   await server?.close()
   await new Promise((resolve, reject) => apiServer.close((error) => error ? reject(error) : resolve()))

@@ -56,7 +56,7 @@ export const MAX_AI_OUTPUT_JSON_BYTES = 8 * 1024;
 export const AI_OUTPUT_SIZE_LIMIT_MESSAGE =
   "AI output exceeds the supported JSON byte limit.";
 
-function isWithinAiOutputJsonLimit(value: unknown): boolean {
+export function isWithinAiOutputJsonLimit(value: unknown): boolean {
   const serialized = JSON.stringify(value);
   return typeof serialized === "string" &&
     new TextEncoder().encode(serialized).byteLength <= MAX_AI_OUTPUT_JSON_BYTES;
@@ -118,6 +118,10 @@ export const GeneratedRecipeSchema = z.object({
       });
     }
   });
+});
+
+export const GeneratedRevisionSchema = GeneratedRecipeSchema.safeExtend({
+  revisionReason: nullToUndefined(z.string().trim().min(1).max(400).optional()),
 });
 
 /**
@@ -243,6 +247,7 @@ export const UpdateRecipeRequestSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   raw_input: z.string().max(20_000).nullable().optional(),
   notes: z.string().max(20_000).nullable().optional(),
+  expected_updated_at: z.string().max(40).datetime({ offset: true }).optional(),
   ingredients: z.array(IngredientSchema.extend({
     name: z.string().min(1).max(200),
     unit: z.string().max(100).nullable().default(null),
@@ -258,6 +263,12 @@ export const UpdateRecipeRequestSchema = z.object({
 }).strict().refine(
   (data) => Object.keys(data).length > 0,
   { message: "At least one field must be provided for update." },
+).refine(
+  (data) => data.expected_updated_at === undefined || data.notes !== undefined || data.cooked_at !== undefined,
+  {
+    path: ["expected_updated_at"],
+    message: "A recipe version requires a notes or cooked date update.",
+  },
 );
 
 export type CreateRecipeRequest = z.infer<typeof CreateRecipeRequestSchema>;
@@ -535,6 +546,33 @@ export const GenerateRecipeRequestSchema = z.object({
   preferences: z.string().trim().max(1000).optional(),
 });
 
+const RevisionNoteExcerptSchema = z.string().max(1200).refine(
+  (note) => note.trim().length > 0,
+  "Select an excerpt from Personal Notes.",
+);
+
+export const RecipeRevisionRequestSchema = z.object({
+  sourceRecipeId: RecipeIdParamSchema,
+  noteExcerpt: RevisionNoteExcerptSchema,
+}).strict();
+
+const RecipeRevisionAmountSchema = z.object({
+  quantity: z.number().nonnegative(),
+  unit: z.string().nullable(),
+});
+
+export const RecipeRevisionSummarySchema = z.object({
+  noteExcerpt: RevisionNoteExcerptSchema,
+  ingredient: z.string().min(1),
+  ingredientIndex: z.number().int().min(0).max(99).optional(),
+  before: RecipeRevisionAmountSchema,
+  after: RecipeRevisionAmountSchema,
+  reason: z.string().min(1).max(400),
+});
+
+export type RecipeRevisionRequest = z.infer<typeof RecipeRevisionRequestSchema>;
+export type RecipeRevisionSummary = z.infer<typeof RecipeRevisionSummarySchema>;
+
 /** A proposed lineage parent, resolved from the retrieved candidate set. */
 export const SuggestedParentSchema = z.object({
   id: z.guid(),
@@ -573,6 +611,7 @@ export const GenerateRecipeResponseSchema = z.object({
    */
   candidate_token: z.string().min(1).nullable(),
   context: GenerateRecipeContextSummarySchema,
+  revision: RecipeRevisionSummarySchema.optional(),
 }).superRefine((value, ctx) => {
   if (value.parents.length > 0 && value.candidate_token === null) {
     ctx.addIssue({

@@ -310,6 +310,7 @@ All fields are optional, but at least one valid field must be provided. An empty
 | `title` | `string`, trimmed, min 1 char | If provided, cannot be empty or null |
 | `raw_input` | `string | null` | Sets `raw_input` column; explicit `null` clears column |
 | `notes` | `string | null` | Sets `notes` column; explicit `null` clears column |
+| `expected_updated_at` | ISO 8601 timestamp, including its time zone | Optional precondition for a `notes` or `cooked_at` update. Pass the exact `updated_at` from the owned recipe read |
 | `ingredients` | `Ingredient[]` | Replaces ingredients array; cannot be null |
 | `instructions` | `Instruction[]` | Replaces instructions array; cannot be null |
 | `flavor_scores` | `FlavorScores | null` | Updates flavor scores; explicit `null` clears column |
@@ -317,6 +318,18 @@ All fields are optional, but at least one valid field must be provided. An empty
 | `cooked_at` | calendar date `YYYY-MM-DD` or `null` | Updates cooked date; explicit `null` clears column |
 
 Personal recipe notes (`notes`) are stored in dedicated nullable column `public.recipes.notes` introduced in migration `20261023000002_add_notes_to_recipes.sql`. `notes` is completely independent of `raw_input` (which stores the original AI prompt or generation input). Modifying or nullifying `notes` never alters `raw_input`, and modifying or nullifying `raw_input` never alters `notes`.
+
+### Conditional cooking-details update
+
+When appending a cooking note, send the combined `notes` and
+`expected_updated_at` from the recipe version used to prepare that text. The
+server updates those cooking details only if the stored version still matches. An owned
+recipe with a different version returns `409 RECIPE_CHANGED`. Reload the
+current recipe, keep the pending note, and review the revised text before saving
+again. Unavailable recipes return `404 NOT_FOUND`. Omitting the precondition
+uses the ordinary PATCH behavior.
+The same precondition protects `cooked_at` edits. Title-only editors omit untouched
+notes and cooked dates so they preserve cooking records added in another tab.
 
 ### Empty PATCH semantics
 
@@ -491,6 +504,7 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 | `404 Not Found` | `NOT_FOUND` | `Route not found.` | Request targets an unsupported sub-path under `/recipes`. |
 | `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only GET, POST, and OPTIONS methods are supported.` | Unsupported method on collection route (`/recipes`) or lineage route (`/recipes/:id/lineage`). Includes `Allow: GET, POST, OPTIONS`. |
 | `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only GET, PATCH, DELETE, and OPTIONS methods are supported.` | Unsupported method on member route (`/recipes/:id`). Includes `Allow: GET, PATCH, DELETE, OPTIONS`. |
+| `409 Conflict` | `RECIPE_CHANGED` | `The recipe changed. Reload it before saving cooking details.` | A conditional cooking-details update no longer matches the owned recipe version. |
 | `409 Conflict` | `CONFLICT` | `Recipe lineage relationship already exists.` | Database unique constraint `unique_parent_child_pair` (`23505`) is violated. |
 | `503 Service Unavailable` | `AUTH_SERVICE_RATE_LIMITED` | `Authentication service is temporarily unavailable. Please try again later.` | Upstream Supabase Auth returns `429 Too Many Requests`. Propagates `Retry-After` header when present. |
 | `500 Internal Server Error` | `INTERNAL_ERROR` | `Internal server error.` | Server configuration error, database query failure, RLS denial, or schema mismatch. Never leaks secrets or SQL details. |
@@ -543,3 +557,12 @@ The authenticated search operation evaluates substring filters against `title` (
 An audit of sorting indexes confirmed the following operational and semantic distinctions:
 - **Created timestamp ordering:** `idx_recipes_user_created (user_id, created_at desc)` (`20261013000000_initial_schema.sql`) stores narrower index rows (24 bytes payload) than `idx_recipes_user_created_id (user_id, created_at desc, id asc)` (`20261026000003_add_recipe_search_indexes.sql`), accelerating simple `ORDER BY created_at DESC` scans that do not require tie-breaker evaluation.
 - **Rating null ordering semantics:** `idx_recipes_user_rating (user_id, star_rating desc)` (`20261013000000_initial_schema.sql`) operates under PostgreSQL default `NULLS FIRST` semantics for `DESC` indexes. In contrast, `idx_recipes_user_rating_created_id` (`20261026000003_add_recipe_search_indexes.sql`) explicitly specifies `NULLS LAST`. In PostgreSQL, a B-tree index created with `NULLS LAST` cannot satisfy queries expecting default `NULLS FIRST` ordering. Dropping `idx_recipes_user_rating` would cause queries using default `ORDER BY star_rating DESC` to incur in-memory Sort operations. Both indexes are intentionally retained to preserve distinct ordering semantics.
+
+### Renewing preview link authorization
+
+`POST /recipes/lineage-authorization` accepts the same `candidate_token` and
+`parent_recipe_ids` fields as a lineage save, without requiring a child recipe.
+It checks the signed candidate set, authenticated user, and current parent
+ownership before returning a fresh `candidate_token`. Expired signed previews
+can renew; invalid signatures, other users, and extra candidates cannot. This
+read-only preflight uses no AI quota. See [save-time candidate membership](ai-integration.md#save-time-candidate-membership-ai-07) for the review and retry flow.

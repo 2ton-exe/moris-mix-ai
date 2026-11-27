@@ -1,4 +1,4 @@
-import { Link, Navigate, Outlet, useLocation } from 'react-router'
+import { Navigate, Outlet, useLocation } from 'react-router'
 import { ErrorState } from '../components/ErrorState'
 import { LoadingState } from '../components/LoadingState'
 import { useAuth } from './context'
@@ -10,7 +10,6 @@ export function AuthReady() {
   if (isLoading) return <JournalAuthScene><main className="mm-auth-main"><JournalAuthCard eyebrow="Your journal" mood="think"><LoadingState message="Restoring your session…" /></JournalAuthCard></main></JournalAuthScene>
   if (error) return <JournalAuthScene><main className="mm-auth-main"><JournalAuthCard eyebrow="Your journal" mood="worried">
     <ErrorState message={error} onRetry={retryInitialization} />
-    <Link className="button button-secondary" to="/demo-recipe">View demonstration recipe</Link>
   </JournalAuthCard></main></JournalAuthScene>
   return <Outlet />
 }

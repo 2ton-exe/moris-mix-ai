@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { editorState } from './draft'
-import { FORM_ROWS_PER_LEAF, formPagePosition, formTextRows, leafAnchorForPage, leafIndexForAnchor, leafKeyForFieldPath, recipeFormLeaves, splitFormText, splitIdentityNotes, splitInstructionText, visibleFormLeafIndices } from './physicalFormPages'
+import { FORM_ROWS_PER_LEAF, formPagePosition, formTextRows, leafAnchorForPage, leafIndexForAnchor, leafKeyForFieldPath, measuredTextRows, recipeFormLeaves, splitFormText, splitIdentityNotes, splitInstructionText, visibleFormLeafIndices } from './physicalFormPages'
 import { recipeFormFixture } from './testing/fixtures'
 
 it('keeps identity first and groups complete ordered rows by section', () => {
@@ -40,6 +40,25 @@ it('creates empty section leaves and follows a row across grouped page boundarie
   expect(desktopIngredientLeaves).toHaveLength(2)
   expect(desktopIngredientLeaves[0]).toMatchObject({ rowKeys: withRows.ingredients.slice(0, 4).map(({ key }) => key) })
   expect(desktopIngredientLeaves[1]).toMatchObject({ rowKeys: withRows.ingredients.slice(4).map(({ key }) => key) })
+
+  const shortDesktop = recipeFormLeaves(withRows, false, null, true, true, undefined, undefined, undefined, { compactIngredientRows: 2 })
+  expect(shortDesktop.filter(({ kind }) => kind === 'ingredients')).toMatchObject([
+    { rowKeys: withRows.ingredients.slice(0, 2).map(({ key }) => key) },
+    { rowKeys: withRows.ingredients.slice(2, 4).map(({ key }) => key) },
+    { rowKeys: withRows.ingredients.slice(4).map(({ key }) => key) },
+  ])
+  expect(shortDesktop.filter(({ kind }) => kind === 'instructions')).toMatchObject(
+    [{ rowKeys: withRows.instructions.map(({ key }) => key) }],
+  )
+  expect(leafIndexForAnchor(shortDesktop, `ingredient:${movedKey}`)).toBe(2)
+
+  const withLongName = { ...withRows, ingredients: withRows.ingredients.map((row, index) => index === 2 ? { ...row, name: 'Long'.repeat(50) } : row) }
+  expect(recipeFormLeaves(withLongName, false, null, true, true, undefined, undefined, undefined, { compactIngredientRows: 2 })
+    .filter(({ kind }) => kind === 'ingredients')).toMatchObject([
+    { rowKeys: withRows.ingredients.slice(0, 2).map(({ key }) => key) },
+    { rowKeys: [withRows.ingredients[2].key] },
+    { rowKeys: withRows.ingredients.slice(3).map(({ key }) => key) },
+  ])
 })
 
 it('groups facing leaves on desktop and exposes one numbered leaf on narrow layouts', () => {
@@ -87,4 +106,82 @@ it.each([223, 224, 225, 226])('splits emoji near the row boundary after %i ASCII
     expect(formTextRows(part, 56)).toBeLessThanOrEqual(4)
     expect(part).not.toMatch(/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/)
   }
+})
+
+it('packs three short desktop steps while keeping long continuations intact', () => {
+  const state = editorState({ ...recipeFormFixture, instructions: Array.from({ length: 4 }, (_, index) => ({ step: index + 1, text: 'Stir gently.' })) })
+  const pages = recipeFormLeaves(state, false, null, true, true, 600, 8, 40)
+  expect(pages.filter(({ kind }) => kind === 'instructions').map(leaf => 'rowKeys' in leaf && leaf.rowKeys.length)).toEqual([3, 1])
+  expect(recipeFormLeaves(state, true).filter(({ kind }) => kind === 'instructions')).toHaveLength(4)
+  state.instructions[1].text = 'Keep stirring slowly. '.repeat(60)
+  const longPages = recipeFormLeaves(state, false, null, true, true, 600, 8, 40)
+  expect(longPages.filter(leaf => leaf.kind === 'instructions' && leaf.rowKeys.includes(state.instructions[1].key)).every(leaf => 'rowKeys' in leaf && leaf.rowKeys.length === 1)).toBe(true)
+})
+
+it('uses the available method rows without reserving the heading twice', () => {
+  const text = 'Gently stir the onion and garlic until fragrant, then fold in the tomatoes and simmer for five minutes.'
+  const state = editorState({ ...recipeFormFixture, instructions: Array.from({ length: 4 }, (_, index) => ({ step: index + 1, text })) })
+  const instructionLayout = { rows: 7, overhead: 2, countRows: (text: string, continued: boolean) => formTextRows(text, continued ? 30 : 20) }
+  const pages = recipeFormLeaves(state, false, null, true, true, 80, 3, 33, { instructionLayout })
+  expect(pages.filter(leaf => leaf.kind === 'instructions')).toHaveLength(4)
+  expect(splitInstructionText(text, 80, 3, 33, instructionLayout)).toEqual([text])
+  const longText = text.repeat(4)
+  const parts = splitInstructionText(longText, 80, 3, 33, instructionLayout)
+  expect(parts.join('')).toBe(longText)
+  expect(parts.every((part, index) => instructionLayout.countRows(part, index > 0) <= instructionLayout.rows)).toBe(true)
+  expect(parts[1].length).toBeGreaterThan(parts[0].length)
+})
+
+it('wraps measured words and wide Unicode characters without losing source text', () => {
+  const measureWidth = (text: string) => Array.from(text).reduce((sum, character) => sum + (character === 'W' || character === '🍅' ? 2 : 1), 0)
+  expect(measuredTextRows('ab cd ef', 5, measureWidth)).toBe(2)
+  expect(measuredTextRows('WWWWWW', 4, measureWidth)).toBe(3)
+  expect(measuredTextRows('🍅🍅🍅', 4, measureWidth)).toBe(2)
+  expect(measuredTextRows('ab\n\ncd', 5, measureWidth)).toBe(3)
+  const text = 'WWWWWW\n🍅🍅🍅 add the tomatoes gently.'
+  const layout = { rows: 2, overhead: 2, countRows: (value: string, continued: boolean) => measuredTextRows(value, continued ? 8 : 4, measureWidth) }
+  const parts = splitInstructionText(text, 1, 1, 1, layout)
+  expect(parts.join('')).toBe(text)
+  expect(parts.every((part, index) => layout.countRows(part, index > 0) <= layout.rows)).toBe(true)
+})
+
+it('reuses unchanged measured steps and recalculates changed text or paper geometry', () => {
+  let measurements = 0
+  const layout = { rows: 2, overhead: 2, countRows: (text: string) => { measurements++; return formTextRows(text, 12) } }
+  const text = 'Warm the pan gently and stir the tomatoes until soft.'
+  const first = splitInstructionText(text, 1, 1, 1, layout)
+  const initialMeasurements = measurements
+  expect(splitInstructionText(text, 1, 1, 1, layout)).toEqual(first)
+  expect(measurements).toBe(initialMeasurements)
+  expect(splitInstructionText(text + ' Taste.', 1, 1, 1, layout).join('')).toBe(text + ' Taste.')
+  expect(measurements).toBeGreaterThan(initialMeasurements)
+  const state = editorState({ ...recipeFormFixture, instructions: Array.from({ length: 3 }, (_, index) => ({ step: index + 1, text })) })
+  const pages = recipeFormLeaves(state, false, null, true, true, 80, 3, 33, { instructionLayout: layout })
+  const unchangedMeasurements = measurements
+  expect(recipeFormLeaves({ ...state, title: 'A revised title' }, false, null, true, true, 80, 3, 33, { instructionLayout: layout })).toEqual(pages)
+  expect(measurements).toBe(unchangedMeasurements)
+  const largerPaper = { ...layout, rows: 10 }
+  expect(splitInstructionText(text, 1, 1, 1, largerPaper)).toEqual([text])
+})
+
+it('keeps a desktop method position when font or paper geometry changes its parts', () => {
+  const text = 'Warm the pan gently and stir the tomatoes until soft. '.repeat(8)
+  const state = editorState({ ...recipeFormFixture, instructions: [{ step: 1, text }] })
+  const narrow = { rows: 2, overhead: 2, countRows: (value: string) => formTextRows(value, 15) }
+  const wider = { ...narrow, rows: 6 }
+  const oldLeaves = recipeFormLeaves(state, false, null, true, true, 80, 3, 33, { instructionLayout: narrow })
+  const oldMethod = oldLeaves.filter(leaf => leaf.kind === 'instructions')[3]
+  const anchor = leafAnchorForPage(oldMethod, true)
+  expect(anchor).toMatch(/^instruction:[^:]+:offset:\d+$/)
+  const newLeaves = recipeFormLeaves(state, false, null, true, true, 80, 3, 33, { instructionLayout: wider })
+  const destination = newLeaves[leafIndexForAnchor(newLeaves, anchor)]
+  expect(destination.kind).toBe('instructions')
+  const offset = Number(anchor.split(':').at(-1))
+  if (destination.kind === 'instructions') {
+    const part = destination.textParts[0]
+    const parts = splitInstructionText(text, 80, 3, 33, wider)
+    expect(part.start).toBeLessThanOrEqual(offset)
+    expect(part.start + parts[part.part].length).toBeGreaterThan(offset)
+  }
+  expect(leafAnchorForPage(oldMethod)).toMatch(/:part:3$/)
 })

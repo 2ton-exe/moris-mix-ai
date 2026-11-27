@@ -1,0 +1,47 @@
+/* Reserve the real layout immediately; only the paper marks wait for fast requests. */
+.mm-skeleton-line, .mm-skeleton-block {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  animation: mm-paper-mark .001s .15s both;
+}
+.mm-skeleton-line::after, .mm-skeleton-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 20%, rgb(255 252 243 / .38) 50%, transparent 80%);
+  transform: translateX(-100%);
+}
+.mm-skeleton-copy p .mm-skeleton-line:nth-child(2n) { width: 65%; }
+.mm-skeleton-icon { flex: none; width: 24px; height: 24px; }
+.mm-skeleton-field { display: block; width: 100%; height: 44px; border-block-end: 1px solid var(--mm-border-paper); }
+.mm-skeleton-notes { display: block; width: 100%; height: 116px; background-image: repeating-linear-gradient(transparent 0 27px, var(--mm-border-paper) 27px 28px); }
+.mm-loading-fields { display: grid; gap: 16px; }
+.mm-loading-fields--review { display: block; }
+.mm-loading-fields .recipe-form-field { min-width: 0; }
+.mm-loading-fields .recipe-form-field > span:first-child { display: block; margin-bottom: 8px; color: var(--mm-color-burgundy-900); font: 700 .75rem/1.2 var(--mm-font-sans); letter-spacing: .045em; text-transform: uppercase; }
+.mm-loading-fields--review .recipe-form-field > span:first-child { margin-bottom: 4px; }
+.mm-loading-photo { aspect-ratio: 1; width: min(100%, 220px); }
+.mm-reading-skeleton .mm-reading-ingredients li { display: flex; align-items: center; gap: 10px; }
+.mm-skeleton-method-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.mm-reading-skeleton .mm-reading-method li { display: flex; gap: 12px; }
+.mm-reading-skeleton .mm-reading-method li p { flex: 1; }
+.mm-reading-skeleton .mm-reading-footer__actions .mm-skeleton-action { width: min(42%, 180px); }
+.mm-loading-inline { display: inline-block; min-width: min(100%, 16ch); }
+.mm-loading-inline .mm-skeleton-line { width: 100%; }
+@keyframes mm-paper-mark { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mm-paper-light { to { transform: translateX(100%); } }
+@keyframes mm-paper-field-light { from { background-position: 100% 0, 0 0; } to { background-position: -100% 0, 0 0; } }
+@keyframes mm-content-reveal { from { opacity: .72; } to { opacity: 1; } }
+@media (prefers-reduced-motion: no-preference) {
+  /* Two passes finish within five seconds; slow/offline requests stay calm. */
+  textarea.mm-skeleton-block, input.mm-skeleton-line {
+    background-image: linear-gradient(105deg, transparent 30%, rgb(255 252 243 / .38) 50%, transparent 70%), var(--mm-tex-grain) !important;
+    background-size: 200% 100%, auto !important;
+    animation: mm-paper-field-light 2.2s .15s 2;
+  }
+  .mm-skeleton-line::after, .mm-skeleton-block::after { animation: mm-paper-light 2.2s .15s 2; }
+  .mm-journal-spread :is(.mm-collection-entries, .mm-index-entries):not([aria-hidden="true"]),
+  .mm-journal-spread .journal-recipe:not(.mm-reading-skeleton) { animation: mm-content-reveal .18s ease-out; }
+}

@@ -6,6 +6,7 @@ import {
   createGenerateRecipeApi,
   GENERATE_RECIPE_PATH,
   generateRecipeErrorMessage,
+  revisionErrorMessage,
   generateRecipeRequestSchema,
   generateRecipeResponseSchema,
   InvalidGeneratedRecipeResponse,
@@ -86,6 +87,22 @@ describe('AI Chef request and response contract', () => {
     expect(String(fetchImpl.mock.calls[0]?.[0])).not.toContain('/recipes')
   })
 
+  it.each([undefined, 1])('requests a revision with ingredient index %s and requires exact evidence', async (ingredientIndex) => {
+    const noteExcerpt = 'Too salty. Keep the tang.'
+    const revision = {
+      noteExcerpt, ingredient: 'tomatoes', reason: 'Use less this time.',
+      ...(ingredientIndex === undefined ? {} : { ingredientIndex }),
+      before: { quantity: 4, unit: null }, after: { quantity: 2, unit: null },
+    }
+    const send = vi.fn().mockResolvedValue({ ...generated, revision })
+    const api = createGenerateRecipeApi({ postAuthenticatedJson: send })
+    const sourceRecipeId = generated.parents[0].id
+
+    await expect(api.revise(sourceRecipeId, noteExcerpt, request)).resolves.toEqual({ ...generated, revision })
+    expect(send).toHaveBeenCalledWith(GENERATE_RECIPE_PATH, { sourceRecipeId, noteExcerpt }, request)
+    await expect(api.revise(sourceRecipeId, 'A different note.', request)).rejects.toBeInstanceOf(InvalidGeneratedRecipeResponse)
+  })
+
   it('rejects malformed success responses without accepting partial recipe data', async () => {
     const api = createGenerateRecipeApi({
       postAuthenticatedJson: vi.fn().mockResolvedValue({ ...generated, recipe: { title: 'incomplete' } }),
@@ -107,4 +124,10 @@ describe('AI Chef request and response contract', () => {
     expect(generateRecipeErrorMessage(new Error('timeout'), true)).toContain('took too long')
     expect(generateRecipeErrorMessage(http(500, 'INTERNAL_ERROR'))).not.toContain('private')
   })
+})
+
+it('explains oversized revisions without suggesting a quota-consuming retry', () => {
+  const error = new HttpError('http', 'Unprocessable', 422, { error: { code: 'REVISION_SOURCE_TOO_LARGE' } })
+  expect(revisionErrorMessage(error)).toContain('You can edit it directly')
+  expect(revisionErrorMessage(error)).toContain('no AI request was used')
 })

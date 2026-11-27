@@ -41,7 +41,7 @@ export function splitReadingText(text: string, limit: number): string[] {
 }
 
 /** Keep semantic entries whole when they fit; oversized entries occupy a leaf alone. */
-export function paginateReading(items: ReadingMeasurement[], capacity: number): string[][] {
+export function paginateReading(items: ReadingMeasurement[], capacity: number, maxItems = Infinity): string[][] {
   if (!Number.isFinite(capacity) || capacity <= 0) return [items.map((item) => item.id)]
   const pages: string[][] = []
   let page: string[] = []
@@ -50,7 +50,7 @@ export function paginateReading(items: ReadingMeasurement[], capacity: number): 
   for (const item of items) {
     const height = item.height - (previous === item.section ? item.headingHeight : 0)
     const gap = page.length ? 10 : 0
-    if (page.length && used + gap + height > capacity) {
+    if (page.length && (page.length >= maxItems || used + gap + height > capacity)) {
       pages.push(page)
       page = []
       used = 0

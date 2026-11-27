@@ -1,13 +1,15 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { Link, MemoryRouter, useLocation } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MoriCompanion } from './MoriCompanion'
 import { MoriCompanionProvider, useMoriActivity, useMoriGuidance } from './MoriCompanionContext'
 import type { MoriActivity } from './MoriCompanionContext'
+import * as navigationMotion from './moriNavigationMotion'
+import { JOURNAL_SINGLE_LAYOUT_QUERY } from '../journal/pageTurnMotion'
 
 function Activity({ activity }: { activity: MoriActivity | null }) { useMoriActivity(activity); return null }
 function Guidance() { useMoriGuidance({ message: 'Your journal is ready.', action: { label: 'Write a recipe', onClick: () => undefined } }); return null }
-function Companion({ children, initialEntries = ['/app/recipes'] }: { children?: React.ReactNode; initialEntries?: string[] }) { return <MemoryRouter initialEntries={initialEntries}><MoriCompanionProvider>{children}<MoriCompanion /></MoriCompanionProvider></MemoryRouter> }
+function Companion({ children, initialEntries = ['/app/recipes'], userId }: { children?: React.ReactNode; initialEntries?: string[]; userId?: string }) { return <MemoryRouter initialEntries={initialEntries}><MoriCompanionProvider>{children}<MoriCompanion userId={userId} /></MoriCompanionProvider></MemoryRouter> }
 afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it('opens guidance and restores focus after Escape', () => {
@@ -138,6 +140,27 @@ it('keeps guidance open after a same-route action', () => {
   expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
 })
 
+it('opens and focuses the composer on the first desktop activation', () => {
+  vi.stubGlobal('matchMedia', vi.fn((media: string) => ({ matches: false, media, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  render(<Companion userId="desktop-user" />)
+  fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+  const panel = screen.getByRole('region', { name: 'Mori' })
+  const composer = within(panel).getByRole('textbox', { name: 'Message Mori' })
+  expect(document.activeElement).toBe(composer)
+  expect(within(panel).queryByRole('button', { name: 'Show quick actions' })).toBeNull()
+  expect(within(panel).getByRole('button', { name: 'Open recipes' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Talk to Mori' }).textContent).not.toContain('Talk to Mori')
+})
+
+it('keeps the full chat visible at the single-page breakpoint', () => {
+  vi.stubGlobal('matchMedia', vi.fn((media: string) => ({ matches: media === JOURNAL_SINGLE_LAYOUT_QUERY, media, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  render(<Companion userId="tablet-user" />)
+  fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+
+  expect(screen.getByRole('textbox', { name: 'Message Mori' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Resize Mori chat' })).toBeNull()
+})
+
 it.each([
   ['/app', 'My recipes'],
   ['/app/recipes', 'My recipes'],
@@ -160,4 +183,26 @@ it.each([
   expect(panel.textContent).not.toContain('private-recipe-id')
   expect(screen.queryByText('Organize cooking notes')).toBeNull()
   expect(screen.queryByText('Find something to cook')).toBeNull()
+})
+
+
+it('routes chapter clicks immediately while Mori walks independently and cancels stale travel', () => {
+  const cancel = vi.fn()
+  const travel = vi.spyOn(navigationMotion, 'travelToJournalTab').mockReturnValue({
+    arrived: new Promise<boolean>(() => {}), cancel,
+  })
+  function Location() { return <output data-testid="chapter-route">{useLocation().pathname}</output> }
+  const view = render(<Companion><nav className="mm-bookmarks--journal">
+    <Link to="/app/recipes/new">New recipe</Link>
+    <Link to="/app/chef">AI Chef</Link>
+  </nav><Location /></Companion>)
+  fireEvent.click(screen.getByRole('link', { name: 'New recipe' }))
+  expect(screen.getByTestId('chapter-route').textContent).toBe('/app/recipes/new')
+  expect(travel).toHaveBeenCalledTimes(1)
+  fireEvent.click(screen.getByRole('link', { name: 'AI Chef' }))
+  expect(screen.getByTestId('chapter-route').textContent).toBe('/app/chef')
+  expect(cancel).toHaveBeenCalledTimes(1)
+  expect(travel).toHaveBeenCalledTimes(2)
+  view.unmount()
+  expect(cancel).toHaveBeenCalledTimes(2)
 })
