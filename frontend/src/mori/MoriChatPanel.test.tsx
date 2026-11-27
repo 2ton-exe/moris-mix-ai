@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import { HttpError } from '../api/http'
@@ -10,7 +10,7 @@ import type { ExtractedRecipe } from '../quick-ai/extractRecipe'
 import { extractRecipeApi, MAX_EXTRACTION_INPUT_CHARS } from '../quick-ai/extractRecipe'
 import * as moriSpriteAtlas from '../journal/moriSpriteAtlas'
 import { MoriCompanion } from './MoriCompanion'
-import { MoriCompanionProvider, useMoriReviewCompletion } from './MoriCompanionContext'
+import { MoriCompanionProvider, useMoriActivity, useMoriReviewCompletion } from './MoriCompanionContext'
 import { MoriChatPanel } from './MoriChatPanel'
 
 function Location() {
@@ -610,4 +610,35 @@ it('uses amount descriptions without leaking the overridden unit into the extrac
   await screen.findByRole('button', { name: 'Review draft' })
   expect(screen.getByText('Oil, as needed')).toBeTruthy()
   expect(screen.queryByText('as needed tsp Oil')).toBeNull()
+})
+
+
+it('announces a pending chat request once while open, keeps closed speech, and preserves external problems', async () => {
+  vi.spyOn(extractRecipeApi, 'extract').mockImplementation(() => new Promise(() => {}))
+  function ExternalProblem({ active }: { active: boolean }) {
+    useMoriActivity(active ? { kind: 'attention', message: 'Check your pantry ingredients.' } : null)
+    return null
+  }
+  const app = (problem: boolean) => <MemoryRouter initialEntries={['/app/recipes']}><MoriCompanionProvider>
+    <ExternalProblem active={problem} /><MoriCompanion userId="pending-chat-status" />
+  </MoriCompanionProvider></MemoryRouter>
+  const view = render(app(false))
+  fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+  choosePrompt('Record a recipe')
+  send('I simmered tomatoes for soup.')
+  const panel = screen.getByRole('region', { name: 'Mori' })
+  await within(panel).findByText('Mori is working on your request.')
+  expect(within(panel).getAllByRole('status')).toHaveLength(1)
+  view.rerender(app(true))
+  expect(within(panel).getByRole('status', { name: 'Mori says' }).textContent).toBe('Check your pantry ingredients.')
+  expect(within(panel).getAllByRole('status')).toHaveLength(2)
+  view.rerender(app(false))
+  expect(within(panel).getAllByRole('status')).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button', { name: 'Close Mori' }))
+  expect(screen.getByRole('status', { name: 'Mori says' }).textContent).toBe('I’m putting your recipe together…')
+  expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+  expect(within(panel).getAllByRole('status')).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(within(panel).queryByRole('status')).toBeNull())
 })
