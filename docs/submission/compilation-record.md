@@ -236,3 +236,23 @@ Only the unsuffixed production DOCX was present locally. Its PA-20261127 title, 
 The reviewed brief artifacts are intentionally unchanged during this clarification-only turn; their provisional/pending text describes the approved revision's original checkpoint. Current status is the confirmation register and README; approved corrections will flow into subsequent synthesis without repeated approval of the same content. FINAL DOCUMENT destination is reconfirmed, but not written in this turn. D1–D5 remain visible. Prompt 2 context must retain verified local repairs at **40b5e10**, historical failed production acceptance at **5cad4b8**, separate durability follow-up **05c9b32**, and no inference of later merge/deployment/production acceptance. No operational handoff/message was sent.
 
 Extraction used Python ZIP/XML standard libraries after an initial unavailable `lxml` import failed; no dependency install was needed. Artifact hashes, image relationships/captions and source dates were checked locally; approval remains an attributed user declaration, not an automated test or overall readiness verdict.
+
+
+## Final synthesis DevOps packet reconciliation
+
+The user supplied **PROMPT2.md** as the DevOps evidence packet and **PROMPT 3 .md** as synthesis instructions. The [packet's original Markdown bytes](assets/devops-handoff-20261127.md) are retained; its operational close criteria are future dependencies, not authorization to invoke cleanup, change settings, make provider calls or perform production tests. `endterm_format.md` remains authoritative. Existing approved revision `3677bce` and clarification corrections are carried into synthesis without inventing new technical acceptance.
+
+Fresh read-only `gh api` requests to `repos/2ton-exe/moris-mix-ai/releases/tags/v1.0.0`, `git/ref/tags/v1.0.0`, `pulls/308` and `actions/runs/46024556206` confirmed: release non-draft/non-prerelease published **27 November 23:41:56 PHT**; direct tag `c49a8406a535d9b3475634f4f3c6ff998223e246`; #308 merged **23:06:57 PHT** as `66ccff12a63f9640303475b4877bc51acd9dee67`, original tested head `40b5e1051ca7bbdf256eec1e578796b2a8283acb`; and current release run completed successfully at source `c49a840` (last updated **23:28:36 PHT**). These checks read GitHub metadata only. Worker/runtime per-function details, CI counts, anonymous access and recording observations are supplied packet evidence at their explicitly stated checkpoints, not new observations by this synthesis turn.
+
+The packet supersedes current-summary claims that the final tag is missing or #308 merely awaits merge. It does not supersede PA's historical failures, establish later physical R2 deletion or prove v1.0.0 target-specific acceptance. Current CI counts remain distinct from earlier local focused runs and the three production app submissions. D1–D5 are retained as partial, with release identity now established and the narrower applicability, object cleanup, media, policy/retention and access/provenance gaps recorded in the single register.
+
+Supplied packet SHA-256: `53e6cf8ff970fa267fb5a475d1c67cefc0ae4e70f8dceded00f47711b274d2d7`.
+
+
+### Final document publication verification
+
+The canonical brief, DOCX and PDF are synchronized; standalone PDF has three A4 pages and original 10.5 pt body, all visually inspected. [Artifact hashes/render checks](assets/final-synthesis-validation.json). Source prompt versions and daily default were checked against c49a840. No application or production tests were repeated.
+
+The existing FINAL DOCUMENT tab (`t.0`) was updated through revision-guarded native edits. Readback exactly matches all 81 canonical content nodes; four native tables and existing heading styles remain, and the other nine tabs are unchanged. An actual anonymous target-tab PDF export returned three A4 pages; every page was rendered/visually inspected without clipping. [Sanitized native verification](assets/google-final-validation.json). No private other-tab readbacks are published. Native Google pagination/font rendering may differ from LibreOffice; substantive content agrees. This establishes public PDF content access, not a panel-account test or recording playback. No sharing settings were changed.
+
+Yuan's prior approval and approved corrections are preserved, without inventing new approval of unverified facts. The supplied DevOps packet is integrated as dated evidence. Remaining D1–D5, asset permission and historical record/media gaps remain in the single register; final synthesis does not certify overall submission readiness.

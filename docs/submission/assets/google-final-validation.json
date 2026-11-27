@@ -1,0 +1,19 @@
+{
+  "document_url": "https://docs.google.com/document/d/1USkQIcd6oCz7vO2sAsE2ssJcLbs-OOlsEqgfmDamqcI/edit?tab=t.0",
+  "tab": "FINAL DOCUMENT",
+  "tabId": "t.0",
+  "native_revision": "AHj4eMTEwZ-ZDDEfwC6KUFYp2kqrkiiN1qojVVqtBU206SXJapMaJHPDAaqT8bLJz0QkMArmCZj5KOQua-EnvNHH_Q9AdeZNjO2v4Y2bCBQ",
+  "canonical_md_sha256": "c43b3363b9f3488ac23176143d808c7fda5192044f07f099c47e6e2c4a8d7a3c",
+  "canonical_native_text_match": true,
+  "native_tables": 4,
+  "other_tabs_unchanged": 9,
+  "pdf_pages": 3,
+  "pdf_page_size": "596x842pt A4",
+  "native_pdf_sha256": "1e44eb88b6f92882fba74eb1e19a5e42431df5556079ae53e89701581fe283a6",
+  "access": "Anonymous target-tab PDF export returned200 and actual3pagePDF; not an instructor/panel account or video/artifact-playback check",
+  "operations": "Native guarded edits only; no sharing changes",
+  "all_three_native_export_pages_visually_inspected": true,
+  "native_export_url": "https://docs.google.com/document/d/1USkQIcd6oCz7vO2sAsE2ssJcLbs-OOlsEqgfmDamqcI/export?format=pdf&tab=t.0",
+  "native_font": "Existing Cambria, body10.5pt; existing heading hierarchy and native table structure retained",
+  "scope": "Only FINAL DOCUMENT tab updated; other9tabs unchanged; final readback81nodes exact canonical text"
+}

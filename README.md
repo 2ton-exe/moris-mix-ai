@@ -4,7 +4,7 @@ An AI-assisted recipe journal and leftover-meal assistant developed by Team 2ton
 
 ## Submission evidence
 
-Review the [three-page technical brief (PDF)](docs/submission/final-brief.pdf), [editable DOCX](docs/submission/final-brief.docx), [current evidence map](docs/submission/README.md) and [consolidated questions/DevOps dependencies](docs/submission/outstanding-confirmations.md). The [existing Google Doc destination](https://docs.google.com/document/d/1USkQIcd6oCz7vO2sAsE2ssJcLbs-OOlsEqgfmDamqcI/edit?tab=t.0) still contains the dated 25 November draft pending approved replacement. This 27 November reconciliation is provisional; historical attribution and evidence limits are preserved.
+Read the [three-page technical brief (PDF)](docs/submission/final-brief.pdf), [FINAL DOCUMENT Google Doc](https://docs.google.com/document/d/1USkQIcd6oCz7vO2sAsE2ssJcLbs-OOlsEqgfmDamqcI/edit?tab=t.0), [editable DOCX](docs/submission/final-brief.docx) and [reviewer evidence index](docs/submission/final-brief.md#10-reviewer-evidence-index). This reviewable submission integrates the approved clarifications and v1.0.0 DevOps packet. [Specific remaining evidence/access gaps](docs/submission/outstanding-confirmations.md) remain explicit; document completion does not establish overall submission readiness.
 
 
 ## Project Setup

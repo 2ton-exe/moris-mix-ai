@@ -1,0 +1,11 @@
+{
+  "format": "3 A4 pages; original10.5pt body;33paragraphs/4tables",
+  "render": "LibreOfficeDev26.8 bundled override soffice",
+  "visual_inspection": "All3 rendered pages inspected; no clipped/overlapping content; all10headings present",
+  "artifacts": {
+    "final-brief.md": "c43b3363b9f3488ac23176143d808c7fda5192044f07f099c47e6e2c4a8d7a3c",
+    "final-brief.docx": "a8a47e4ebde42dd12e64bc712d82d0eb5c9f2bf2138f9830b8645cd3e49fb5bc",
+    "final-brief.pdf": "bf36cce5c0d2ee10c833bbe7e79813bf9e8f77a147196bc22c2865378119a4cc"
+  },
+  "limitations": "Reviewer-equivalent panel access, native Google rendering and external media playback are separate checks."
+}

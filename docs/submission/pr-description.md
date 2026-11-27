@@ -1,25 +1,23 @@
 ## Summary
 
-Reconcile the submission brief with dated production evidence and source, including independent verification of myntchoc's two fixes in [#308](https://github.com/2ton-exe/moris-mix-ai/pull/308), `40b5e10`. myntchoc plans its merge; the fixes are resolved locally and no longer await repair authorization. [Current evidence and revision identities](https://github.com/2ton-exe/moris-mix-ai/blob/docs/submission-evidence/docs/submission/README.md).
+Synthesize the ten-heading submission brief from approved clarifications, dated production acceptance and the supplied DevOps packet. Update the existing FINAL DOCUMENT tab and prominently link the PDF, Google Doc and evidence index from README.
 
 ## Changes made
 
-- Update the three-page PDF/DOCX and ten-heading brief, evidence table, exact-run appendix and remaining questions. Q1–Q6 now record Yuan/myntchoc’s 27 November confirmations and approval of reviewed revision `3677bce`, with narrower record/permission gaps.
-- Preserve PA-20261127's original results/revisions, four sprints, board relationships, contribution attribution, asset inventory and notices. Remove #282's obsolete pending blocker.
-- Keep missing originals/media, asset permissions, panel access and the separate DevOps dependency list explicit. Procedural textures are established in this PR's tree/build, not claimed deployed.
-
-- Recover both named DUR-01 screenshots from the supplied DOCX, with original image bytes, captions, dates and hashes. Preserve report outcomes and the separate R2 cleanup limitation. Final synthesis/Prompt 2 handoff await the next instruction.
+- Produce consistent canonical Markdown, editable DOCX and three-page A4 PDF using the retained 10.5 pt layout.
+- Integrate v1.0.0/c49a840, current CI/deployment evidence, scoped rollback/restore findings, confirmed pitch/workflow/asset origins and recorded document approval.
+- Preserve earlier PA passes and Chef/revision failures separately from local repair verification at `40b5e10` and subsequent #308 merge/deployment. Both embedded DUR screenshots are supplied. Keep D1–D5, retained-asset permission, original-record, media and panel-access gaps explicit.
 
 ## Testing performed
 
-- Repair `40b5e10`: 63 generation tests, 53 RecipePages tests, TypeScript and the synthetic desktop Chef runner passed (9 journeys / 10 executions, including immediate revision save/reopen at 1440×900 and 1100×640). Overlapping four-case endpoint and three-case alias probes passed.
-- An inadvertently broad frontend run had 1,014 passes / 1 timeout; the isolated AI Chef rerun passed 47/47. No full-suite pass inferred or overlapping totals added. [Exact runs and limits](https://github.com/2ton-exe/moris-mix-ai/blob/docs/submission-evidence/docs/submission/compilation-record.md#repair-follow-up-verification).
-- Original `d329285` source checks and disposable PostgreSQL results remain separately dated. Updated brief: 3 A4 pages, all ten headings; every page inspected. Local Markdown reference/whitespace checks passed.
+All ten headings, five named members/exactly one DevOps Engineer, revision identities, relative evidence links and artifact hashes checked. PDF: three A4 pages, 10.5 pt body; every page visually inspected. Native Google readback and rendering limits are recorded in compilation-record.md. No new application/provider/production tests were run.
+
+Release CI at `c49a840`: 1,015 frontend tests/64 files, 557 deterministic Edge/API passed/6 ignored, separate 204-pass non-production hosted RLS; nine browser shards and production smoke passed. These are dated packet results, not new PA acceptance or additional unique local tests. Existing failed/broad local attempt remains recorded.
 
 ## Related GitHub issue
 
-Existing #293 submission evidence; repair follow-up #308. No new issue or unrelated backlog closure.
+Existing #293 submission evidence; #308 repair follow-up. No unrelated backlog closure.
 
 ## Merge Danger
 
-**Keep #293 draft:** its frontend/asset scope can trigger staging when marked ready. No merge, deployment, production/provider operation, infrastructure change or teammate request was performed here. Local repair verification does not establish the historical production failures' causes or new production acceptance. Document approval is recorded; the named evidence/access/DevOps gaps remain open; no 100% readiness claim.
+**Keep #293 draft:** frontend/asset scope can trigger staging when marked ready. No merge, tag, deployment, infrastructure/provider setting change or teammate message was performed. A reviewable factual brief does not establish complete submission readiness. Remaining gaps and panel/media-access limits are linked explicitly.
