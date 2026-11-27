@@ -374,6 +374,30 @@ it('keeps verified attachment distinct from a selected photo when its display UR
   expect(attachCount).toBe(1)
 })
 
+it.each(['Refresh photo', 'Refresh attached image'])('clears pending attachment feedback after %s succeeds', async (button) => {
+  putFirstFails = false
+  delayPostAttachDownload = true
+  renderEditPage()
+  await screen.findByRole('img', { name: 'Ginger rice photo' })
+  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
+    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
+  })
+  await screen.findByRole('img', { name: 'Selected recipe image preview' })
+  fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
+  await postAttachDownloadStarted
+  await act(async () => resolvePostAttachDownload?.(Response.json({ error: { code: 'TEMPORARY_UNAVAILABLE' } }, { status: 503 })))
+  await screen.findByText('Photo attached privately; refresh to view it.')
+  fireEvent.click(screen.getByRole('button', { name: button }))
+  await waitFor(() => expect(screen.queryByRole('img', { name: 'Selected recipe image preview' })).toBeNull())
+  expect(screen.getByRole('img', { name: 'Ginger rice photo' }).getAttribute('src')).toBe(newImageUrl)
+  expect(screen.getByText('Recipe image saved.')).toBeTruthy()
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.queryByText('Photo attached privately; refresh to view it.')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Refresh attached image' })).toBeNull()
+  expect(attachCount).toBe(1)
+  expect(putCount).toBe(1)
+})
+
 it('hides saved create-image controls when the authenticated account changes', async () => {
   noImage = true
   const view = renderCreatePage(vi.fn(async () => ({ id: recipeId })))

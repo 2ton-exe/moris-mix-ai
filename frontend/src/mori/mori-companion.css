@@ -5,6 +5,7 @@
 .mori-pet-trigger svg { display: block; overflow: visible; filter: drop-shadow(0 5px 3px rgb(47 33 26 / .2)); transition: transform 180ms ease; }
 .mori-pet-trigger:hover svg { transform: translateY(-3px); }
 .mori-pet-bubble { animation: mori-bubble-in 160ms ease-out both; }
+.mori-pet-bubble[data-feedback] { pointer-events: none; }
 .mori-pet-bubble-tail { position: absolute; width: 0; height: 0; pointer-events: none; }
 .mori-pet-bubble[data-placement='left'] .mori-pet-bubble-tail { right: -12px; transform: translateY(-50%); border-top: 9px solid transparent; border-bottom: 9px solid transparent; border-left: 12px solid var(--mm-color-espresso-300); }
 .mori-pet-bubble[data-placement='left'] .mori-pet-bubble-tail::after { position: absolute; top: -8px; left: -13px; content: ''; border-top: 8px solid transparent; border-bottom: 8px solid transparent; border-left: 12px solid var(--mm-color-parchment-50); }

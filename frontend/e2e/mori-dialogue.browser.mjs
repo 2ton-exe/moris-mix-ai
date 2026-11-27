@@ -561,6 +561,13 @@ try {
   await quickPanel.getByRole('button', { name: 'Close Mori', exact: true }).click()
   await expect(quickPanel).toBeHidden()
   await expect(quickApp.page.getByRole('status', { name: 'Mori says' })).toContainText('I’m putting your recipe together…')
+  const feedback = quickApp.page.getByRole('status', { name: 'Mori says' })
+  await expect(feedback).toHaveCSS('pointer-events', 'none')
+  const feedbackBox = await feedback.boundingBox()
+  assert.ok(feedbackBox)
+  const hitFeedback = await quickApp.page.evaluate(({ x, y }) => Boolean(globalThis.document.elementFromPoint(x, y)?.closest('.mori-pet-bubble')),
+    { x: feedbackBox.x + feedbackBox.width / 2, y: feedbackBox.y + feedbackBox.height / 2 })
+  assert.equal(hitFeedback, false, 'Closed-chat feedback must pass clicks through to the page')
   await quickApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
   assert.equal(await quickPanel.getByRole('status').count(), 1, 'Reopening chat must keep one pending announcement')
   assert.ok((await quickPanel.boundingBox()).height > emptyChatHeight, 'Dialogue grows to fit the request status')

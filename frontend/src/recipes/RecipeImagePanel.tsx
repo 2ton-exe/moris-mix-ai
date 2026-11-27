@@ -170,6 +170,24 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     }
   }
 
+  async function refreshAttachedImage(signal?: AbortSignal) {
+    const version = selectionVersion.current
+    const refreshed = await loadImage(signal, true, true)
+    if (signal?.aborted || version !== selectionVersion.current) return
+    if (refreshed) {
+      setSelected(null)
+      setPreviewUrl(null)
+      setIntent(null)
+      setBytesUploaded(false)
+      setAttached(false)
+      setUploadError(null)
+      uploadRequestId.current = null
+      setUploadSuccess(true)
+    } else {
+      setUploadError('The image is attached, but could not be refreshed. Try again.')
+    }
+  }
+
   async function uploadImage() {
     if (!featureEnabled || !selected || !user?.id || busy.current) return
     const controller = new AbortController()
@@ -187,19 +205,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     }, IMAGE_OPERATION_TIMEOUT_MS)
     try {
       if (attached) {
-        const refreshed = await loadImage(controller.signal, true, true)
-        if (controller.signal.aborted) return
-        if (refreshed) {
-          setSelected(null)
-          setPreviewUrl(null)
-          setIntent(null)
-          setBytesUploaded(false)
-          setAttached(false)
-          uploadRequestId.current = null
-          setUploadSuccess(true)
-        } else {
-          setUploadError('The image is attached, but could not be refreshed. Try again.')
-        }
+        await refreshAttachedImage(controller.signal)
         return
       }
 
@@ -238,19 +244,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
       await recipeImageApi.attach(recipeId, activeIntent.id, selected, { userId: user.id, signal: controller.signal })
       if (controller.signal.aborted) return
       setAttached(true)
-      const refreshed = await loadImage(controller.signal, true, true)
-      if (controller.signal.aborted) return
-      if (refreshed) {
-        setSelected(null)
-        setPreviewUrl(null)
-        setIntent(null)
-        setBytesUploaded(false)
-        setAttached(false)
-        uploadRequestId.current = null
-        setUploadSuccess(true)
-      } else {
-        setUploadError('The image is attached, but could not be refreshed. Try again.')
-      }
+      await refreshAttachedImage(controller.signal)
     } catch (error) {
       if (controller.signal.aborted) return
       const code = recipeImageErrorCode(error)
@@ -323,7 +317,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     {!loading && !currentDownload && !previewUrl && !preparing && !downloadError && showEmpty && !allowUpload && <p role="status">No recipe photo has been added yet.</p>}
     {downloadError && <div className="recipe-image-error">
       <p aria-live="polite">Could not load this recipe image.</p>
-      <button type="button" className="button button-secondary" onClick={() => { refreshAttempted.current = false; void loadImage(undefined, true, true) }}>Refresh photo</button>
+      <button type="button" className="button button-secondary" onClick={() => { refreshAttempted.current = false; void (attached ? refreshAttachedImage() : loadImage(undefined, true, true)) }}>Refresh photo</button>
     </div>}
     {allowUpload && <div className="recipe-image-controls">
       {!loading && !currentDownload && !previewUrl && !preparing && !downloadError && <p role="status">No recipe photo has been added yet.</p>}
