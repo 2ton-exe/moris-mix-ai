@@ -147,6 +147,8 @@ The attach operation is idempotent for the same completed upload and recipe. Aft
 
 ## Shared validation
 
+Metadata POST bodies for upload signing, attachment, private download signing, and deletion are limited to 4,096 UTF-8 bytes, including whitespace. The handlers count streamed bytes even without `Content-Length`, cancel oversized streams, and return `413 INPUT_TOO_LARGE` before image RPC or storage operations. The legacy image-byte PUT retains its separate 10 MiB limit.
+
 The shared backend schemas validate the upload request, attach request, and metadata response. Recipe and upload IDs are UUIDs; content type is the three-value allowlist above; `byte_size` is an integer from 1 through 10 MiB; `uploaded_at` is an ISO 8601 UTC timestamp. Request schemas reject unknown fields so callers cannot select ownership or storage paths.
 
 The frontend-facing wire names are `recipe_id`, `content_type`, `byte_size`, `upload_id`, and `uploaded_at`. Browser code consumes this documented contract and does not import Deno-specific modules.
@@ -157,6 +159,7 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 
 | HTTP status | Code | Message | When |
 | --- | --- | --- | --- |
+| `413 Payload Too Large` | `INPUT_TOO_LARGE` | `Request body is too large.` | An image metadata POST body exceeds 4,096 bytes. |
 | `400 Bad Request` | `INVALID_JSON` | `Request body must be a valid JSON object.` | Request body is empty, malformed JSON, or not a plain JSON object. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe image request.` | Invalid UUID, image type, declared size, or unknown request fields. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Missing or invalid authentication credentials.` | Missing, invalid, or expired Bearer token. |
