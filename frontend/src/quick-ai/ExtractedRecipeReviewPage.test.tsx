@@ -28,6 +28,11 @@ const handoff = {
   saved: false as const,
 }
 
+const normalizedHandoff = {
+  ...handoff, recipe: { ...handoff.recipe, ingredients: handoff.recipe.ingredients.map((ingredient) =>
+    ingredient.unit === 'cups' ? { ...ingredient, unit: 'cup' } : ingredient) },
+}
+
 function authState(id = 'cook-a'): AuthState {
   const user = { id, email: `${id}@example.test` } as User
   const session: Session = {
@@ -93,7 +98,7 @@ it('opens the review workflow with extraction fields and original notes kept sep
 
   expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('Garlic soy rice')
   expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('2')
-  expect((screen.getByLabelText('Ingredient 1 unit') as HTMLInputElement).value).toBe('cups')
+  expect((screen.getByLabelText('Ingredient 1 unit') as HTMLInputElement).value).toBe('cup')
   expect((screen.getByLabelText('Ingredient 2 amount description (optional)') as HTMLInputElement).value).toBe('a splash')
   expect(screen.getByText('2 to review')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Mark as reviewed: ingredient 2' }))
@@ -146,7 +151,7 @@ it('persists corrected and temporarily invalid fields across remounts without sa
   renderReview()
   expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('  My edited rice  ')
   expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('not-a-number')
-  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(handoff)
+  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(normalizedHandoff)
 })
 
 it('warns when the edited review cannot be persisted and protects sign-out until storage recovers', async () => {
@@ -190,7 +195,7 @@ it('keeps successive review edits in account-scoped memory across a remount when
   renderReview()
   expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('The latest corrected rice')
   expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('not-a-number')
-  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(handoff)
+  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(normalizedHandoff)
 })
 
 it('warns if a confirmed save cannot clear its old handoff and retries the cleanup', async () => {
@@ -235,7 +240,7 @@ it('shows accessible validation feedback and keeps corrections after failed save
   fireEvent.click(screen.getByRole('button', { name: 'Previous: Recipe details and Ingredients' }))
   expect(screen.getByDisplayValue('Corrected recipe')).toBeTruthy()
   expect(document.body.textContent).not.toContain('private save detail')
-  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(handoff)
+  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(normalizedHandoff)
   expect(readQuickAiEntryDraft('cook-a').reviewDraft?.title).toBe('Corrected recipe')
 })
 
@@ -284,7 +289,7 @@ it('blocks leaving even before the user edits AI-prefilled values and keeps note
   fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }))
   expect(await screen.findByRole('heading', { name: 'Quick AI Entry' })).toBeTruthy()
   expect(readQuickAiEntryDraft('cook-a').notes).toBe(sourceNotes)
-  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(handoff)
+  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(normalizedHandoff)
 })
 
 it('shows a recoverable state for a missing handoff and never renders an empty recipe form', () => {

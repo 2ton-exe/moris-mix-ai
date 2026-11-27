@@ -1,3 +1,4 @@
+import { formatIngredient } from '../../../supabase/functions/_shared/ingredient-units.ts'
 import { useContext, useEffect, useLayoutEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useLocation, useNavigate, type NavigateOptions } from 'react-router'
 import { BookOpen, ChefHat, CookingPot, NotebookPen } from 'lucide-react'
@@ -53,9 +54,7 @@ function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; 
     <strong>{recipe.title}</strong>
     <span>{consumed ? 'Saved to your journal' : 'Unsaved draft'}</span>
     <div><h3>Ingredients</h3>
-      {ingredients.length ? <ul>{ingredients.map((ingredient, index) => <li key={`${ingredient.name}-${index}`}>{[
-        ingredient.quantityText ?? (ingredient.quantity === null ? '' : String(ingredient.quantity)), ingredient.unit, ingredient.name,
-      ].filter(Boolean).join(' ')}</li>)}</ul> : <p>No ingredients listed yet.</p>}
+      {ingredients.length ? <ul>{ingredients.map((ingredient, index) => <li key={`${ingredient.name}-${index}`}>{formatIngredient(ingredient)}</li>)}</ul> : <p>No ingredients listed yet.</p>}
       {recipe.ingredients.length > ingredients.length && <span>+ {recipe.ingredients.length - ingredients.length} more</span>}
     </div>
     <div><h3>Method</h3>

@@ -18,7 +18,7 @@ describe('mapExtractedRecipeToDraft', () => {
     expect(mapExtractedRecipeToDraft(extraction)).toEqual({
       title: 'Garlic soy rice',
       ingredients: [
-        { name: 'rice', quantity: 2, unit: 'cups', inferred: false },
+        { name: 'rice', quantity: 2, unit: 'cup', inferred: false },
         { name: 'soy sauce', quantity: null, unit: null, quantityText: 'a splash', inferred: true },
         { name: 'garlic', quantity: null, unit: null, inferred: true },
       ],

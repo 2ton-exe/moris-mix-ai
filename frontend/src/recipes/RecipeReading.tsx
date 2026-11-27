@@ -1,3 +1,4 @@
+import { formatIngredient } from '../../../supabase/functions/_shared/ingredient-units.ts'
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
@@ -17,8 +18,7 @@ interface ReadingUnit { id: string; section: string; heading: string; count?: st
 
 function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, textChunkSize: number): ReadingUnit[] {
   const units: ReadingUnit[] = recipe.ingredients.map((ingredient, index) => {
-    const amount = ingredient.quantityText ?? [ingredient.quantity, ingredient.unit].filter((part) => part !== null).join(' ')
-    const text = amount ? `${amount} ${ingredient.name}` : ingredient.name
+    const text = formatIngredient(ingredient)
     return splitReadingText(text, textChunkSize).map((partText, part) => ({ id: part ? `ingredient-${index}-part-${part}` : `ingredient-${index}`, section: 'ingredients', heading: 'Ingredients',
       content: <ul><li>{part === 0 && <IngredientEmoji name={ingredient.name} />}{partText}</li></ul> }))
   }).flat()

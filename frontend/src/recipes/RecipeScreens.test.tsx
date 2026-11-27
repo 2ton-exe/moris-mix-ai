@@ -282,7 +282,7 @@ it('loads a detail by route ID, orders steps without mutating data, and navigate
   expect(steps.map((step) => step.querySelector('p')?.textContent)).toEqual(['Prepare it.', 'Serve it.'])
   expect(steps.map((step) => step.getAttribute('value'))).toEqual(['1', '2'])
   expect(recipe.instructions[0].step).toBe(2)
-  expect(screen.getByText('To taste salt')).toBeTruthy()
+  expect(screen.getByText('salt, To taste')).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'Flavor notes' })).toBeTruthy()
   fireEvent.click(screen.getByRole('link', { name: /Back to recipes/ }))
   const returnedCard = await screen.findByRole('link', { name: `Open recipe ${recipe.title}` })

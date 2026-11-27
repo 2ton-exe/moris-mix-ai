@@ -1,4 +1,8 @@
 import { z } from "npm:zod@4.6.6";
+import {
+  isValidIngredientUnit,
+  normalizeIngredientUnit,
+} from "../ingredient-units.ts";
 
 // --- BASE SCHEMAS ---
 
@@ -16,6 +20,16 @@ export const IngredientSchema = z.object({
   unit: z.string().nullable().default(null),
   quantityText: nullToUndefined(z.string().optional()),
   inferred: z.boolean().default(false),
+});
+
+// Strict on writes and model output; IngredientSchema keeps legacy reads compatible.
+export const IngredientInputSchema = IngredientSchema.extend({
+  name: z.string().trim().min(1).max(200),
+  quantity: z.number().finite().positive().nullable().default(null),
+  unit: z.string().trim().refine(isValidIngredientUnit, {
+    message: "Use a unit of up to 100 characters without control characters.",
+  }).nullable().default(null).transform(normalizeIngredientUnit),
+  quantityText: nullToUndefined(z.string().trim().max(200).optional()),
 });
 
 export const InstructionSchema = z.object({
@@ -64,7 +78,7 @@ function isWithinAiOutputJsonLimit(value: unknown): boolean {
 
 export const ExtractedRecipeSchema = z.object({
   title: z.string().min(1),
-  ingredients: z.array(IngredientSchema),
+  ingredients: z.array(IngredientInputSchema),
   instructions: SequentialInstructionsSchema,
   // Models often send null for an optional field. Normalise that to absent
   // instead of failing an otherwise valid extraction.
@@ -176,11 +190,7 @@ export const CreateRecipeRequestSchema = z.object({
   title: z.string().trim().min(1).max(200),
   raw_input: z.string().max(20_000).nullable().optional(),
   notes: z.string().max(20_000).nullable().optional(),
-  ingredients: z.array(IngredientSchema.extend({
-    name: z.string().min(1).max(200),
-    unit: z.string().max(100).nullable().default(null),
-    quantityText: nullToUndefined(z.string().max(200).optional()),
-  })).max(100),
+  ingredients: z.array(IngredientInputSchema).max(100),
   instructions: z.array(
     InstructionSchema.extend({ text: z.string().min(1).max(2_000) }),
   ).max(100),
@@ -243,11 +253,7 @@ export const UpdateRecipeRequestSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   raw_input: z.string().max(20_000).nullable().optional(),
   notes: z.string().max(20_000).nullable().optional(),
-  ingredients: z.array(IngredientSchema.extend({
-    name: z.string().min(1).max(200),
-    unit: z.string().max(100).nullable().default(null),
-    quantityText: nullToUndefined(z.string().max(200).optional()),
-  })).max(100).optional(),
+  ingredients: z.array(IngredientInputSchema).max(100).optional(),
   instructions: z.array(
     InstructionSchema.extend({ text: z.string().min(1).max(2_000) }),
   ).max(100).optional(),

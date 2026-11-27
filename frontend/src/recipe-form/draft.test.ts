@@ -6,17 +6,17 @@ it('normalizes editor fields and preserves nullable quantities and inferred meta
   const state = editorState(recipeFormFixture)
   state.title = '  Ginger rice  '
   state.ingredients[0].name = ' rice '
-  state.ingredients[0].quantity = '0'
+  state.ingredients[0].quantity = '0.5'
   state.ingredients[0].unit = ' cups '
   const result = validateEditor(state)
   expect(result.success).toBe(true)
   if (!result.success) return
   expect(result.data.title).toBe('Ginger rice')
-  expect(result.data.ingredients[0]).toMatchObject({ name: 'rice', quantity: 0, unit: 'cups' })
+  expect(result.data.ingredients[0]).toMatchObject({ name: 'rice', quantity: 0.5, unit: 'cup' })
   expect(result.data.ingredients[1]).toMatchObject({ quantity: null, unit: null, inferred: true, quantityText: 'A small piece' })
 })
 
-it.each(['many', '1/2', 'Infinity', 'NaN', '0x10', '1e999', '-2'])('rejects an invalid numeric quantity: %s', (quantity) => {
+it.each(['many', '0', '1/0', 'Infinity', 'NaN', '0x10', '1e999', '-2'])('rejects an invalid numeric quantity: %s', (quantity) => {
   const state = editorState(recipeFormFixture)
   state.ingredients[0].quantity = quantity
   const result = validateEditor(state)
@@ -24,7 +24,7 @@ it.each(['many', '1/2', 'Infinity', 'NaN', '0x10', '1e999', '-2'])('rejects an i
   if (!result.success) expect(result.error.issues[0].path).toEqual(['ingredients', 0, 'quantity'])
 })
 
-it.each(['0', '.5', '2.5', '1e2', ''])('accepts finite nonnegative or blank quantity: %s', (quantity) => {
+it.each(['1/2', '1 1/2', '½', '.5', '2.5', '1e2', ''])('accepts positive fractional, decimal or blank quantity: %s', (quantity) => {
   const state = editorState(recipeFormFixture)
   state.ingredients[0].quantity = quantity
   expect(validateEditor(state).success).toBe(true)
@@ -74,4 +74,40 @@ it('rejects a blank title and malformed nested values', () => {
   expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, title: '  ' }).success).toBe(false)
   expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, ingredients: [{ name: 'rice', quantity: {}, unit: null }] }).success).toBe(false)
   expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, notes: {} }).success).toBe(false)
+})
+
+
+it('keeps overridden structured values through save and edit and restores them when the description is removed', () => {
+  const state = editorState(recipeFormFixture)
+  state.ingredients[0].quantity = '1/2'
+  state.ingredients[0].unit = 'tablespoons'
+  state.ingredients[0].quantityText = 'as needed'
+  const saved = validateEditor(state)
+  expect(saved.success).toBe(true)
+  if (!saved.success) return
+  expect(saved.data.ingredients[0]).toMatchObject({ quantity: 0.5, unit: 'tbsp', quantityText: 'as needed' })
+  const edited = editorState(saved.data)
+  expect(edited.ingredients[0]).toMatchObject({ quantity: '0.5', unit: 'tbsp', quantityText: 'as needed' })
+  edited.ingredients[0].quantityText = ''
+  const restored = validateEditor(edited)
+  expect(restored.success).toBe(true)
+  if (!restored.success) return
+  expect(restored.data.ingredients[0]).toMatchObject({ quantity: 0.5, unit: 'tbsp' })
+  expect(restored.data.ingredients[0]).not.toHaveProperty('quantityText')
+})
+
+it('accepts a description-only ingredient and rejects malformed custom units', () => {
+  const state = editorState(recipeFormFixture)
+  state.ingredients[0].quantity = ''
+  state.ingredients[0].unit = ''
+  state.ingredients[0].quantityText = 'to taste'
+  expect(validateEditor(state)).toMatchObject({ success: true, data: { ingredients: [
+    { quantity: null, unit: null, quantityText: 'to taste' }, expect.anything(),
+  ] } })
+  for (const unit of ['x'.repeat(101), 'mug\nfull']) {
+    state.ingredients[0].unit = unit
+    const invalid = validateEditor(state)
+    expect(invalid.success).toBe(false)
+    if (!invalid.success) expect(invalid.error.issues[0].path).toEqual(['ingredients', 0, 'unit'])
+  }
 })
