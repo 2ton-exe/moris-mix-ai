@@ -9,10 +9,11 @@ Inventory observed on 2026-11-02 against main `d1dbba6c001c39c65d74d6856a83058f7
 The status below supersedes the November 2 and November 6 inventories. Those
 sections preserve the evidence available at the time.
 
-## Current controls and remaining decisions — 2026-11-26
+## Current controls and remaining decisions — 2026-11-27
 
-This review used `main` at `7e5260be9c92d0dc07a94ae06447020655b1381b`
-and live GitHub settings. The repository's default Actions token is read-only
+The November 26 workflow review used `main` at
+`7e5260be9c92d0dc07a94ae06447020655b1381b` and live GitHub settings. The
+repository's default Actions token is read-only
 and cannot approve pull requests. The PR and main callers explicitly request
 `contents: read`. The three required merge contexts are Frontend, Database,
 and Edge/API. E2E and staging are separate, and production runs its own
@@ -53,22 +54,32 @@ recorded successful deployment URL, AI-route, and runtime smoke steps.
 - Automatic staging trusts repository writers and the eligible PR revision.
   The operator's Cloudflare audit event named **Moris Mix Staging Deploy** for
   the Worker version in the [November 25 staging job](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45626259513/job/139248095095).
-  The token policy grants account-wide Workers Scripts Edit, including
-  production Workers in the same account. GitHub still shows the canonical
-  staging secret and two generic Cloudflare secret names in the staging
-  environment. The active staging workflow uses the staging-specific names.
-  The owner must check other consumers and scope before removing generic entries.
+  That incumbent token grants account-wide Workers Scripts Edit, including
+  production Workers in the same account. The operator verified the saved
+  incumbent value against its token ID and retained it for rollback. The
+  active staging workflow uses the staging-specific names. The two generic
+  Cloudflare secret names in the staging environment have no checked-in
+  staging consumer. Confirm external consumers and authorize cleanup before
+  removing them.
 - The operator installed a staging-Worker-only Editor candidate in a separate
   staging environment secret. Its [controlled run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45816922318)
   on [PR #290](https://github.com/2ton-exe/moris-mix-ai/pull/290) verified
   compatibility. One attempt passed Wrangler deployment, URL verification, and
   runtime smoke for Worker version `2ee96757-7da2-404e-a093-24f1893c2443`.
-  Direct Cloudflare audit attribution remains pending. The operator reported
-  that the newest visible event preceded the deployment. Account-owned tokens
-  use the Account actor type in Audit Logs v2. The canonical secret and
-  incumbent remain in use pending separate cutover approval. #290 is back in
-  draft. [Issue evidence](https://github.com/2ton-exe/moris-mix-ai/issues/163) ·
+  The operator reported that the newest visible audit event preceded the
+  deployment. Account-owned tokens use the Account actor type in Audit Logs v2.
   [Cloudflare Audit Logs](https://developers.cloudflare.com/fundamentals/account/account-security/audit-logs/)
+- On November 27, GitHub recorded the update of the regular
+  `STAGING_CLOUDFLARE_API_TOKEN` secret at 14:21:08 PHT after the operator
+  entered the tested candidate. The next automatic staging run deployed Worker
+  version `a4d052fc-e66a-4e46-8f4b-c443cb10200a` and passed URL verification
+  and runtime smoke. Playwright failures left the overall PR run failed.
+  The temporary PR #290 closed unmerged. The candidate entry and saved
+  incumbent were retained. Direct Cloudflare audit attribution for the
+  replacement remains pending.
+  [Canonical staging run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45951106396) ·
+  [Closed candidate PR](https://github.com/2ton-exe/moris-mix-ai/pull/290) ·
+  [Issue evidence](https://github.com/2ton-exe/moris-mix-ai/issues/163)
 
 ### Production credential isolation
 
@@ -76,38 +87,44 @@ At the reviewed main revision, release and backup still read legacy
 repository-scope Cloudflare and Supabase credentials. The main-only workflow
 guards allow these jobs to run on main, while repository secrets remain
 available to eligible same-repository PR workflows. The release workflow in
-this change uses dedicated names from `production-release`, and the backup
-uses separate Supabase names from `production-backup`. Provisioning remains
-pending. The proposed `production-release` environment needs a custom branch
-policy allowing only `main`, with administrator bypass disabled. The existing
-`production-backup` environment allows only `main` and currently permits
-administrator bypass. Keep repository and organization copies of the new
-names absent. [GitHub Actions secret scopes](https://docs.github.com/en/enterprise-cloud@latest/code-security/reference/secret-security/secret-types)
+this change uses three dedicated names from `production-release`, and the
+backup uses two separate Supabase names from `production-backup`. GitHub
+lists all five entries. Both environments allow only the `main` branch.
+Administrator bypass is disabled for `production-release` and enabled for
+`production-backup`. Keep repository and organization copies of the new
+names absent.
+[GitHub Actions secret scopes](https://docs.github.com/en/enterprise-cloud@latest/code-security/reference/secret-security/secret-types)
 
 The release preflight rejects missing and whitespace-only credentials before
 checkout and any provider writes. Backup validates its dedicated inputs before
-project link and dump. Before an authorized cutover, use the intended
-credentials on the exact production targets from a trusted operator session.
-Read Cloudflare deployment metadata for the production Worker, verify Supabase
-access by reading a known Edge Function for the production project, and read
-migration history if the image gate requires it. For backup, verify the
-production project with the backup PAT and authenticate to the intended database
-over verified TLS with a read-only connection check such as `SELECT 1`.
-Record only the target and sanitized success or failure. Review the provider
-policies separately for write and backup grants, then verify the authorized
-release and backup after cutover.
-[Cloudflare deployment metadata](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/list/) ·
+project link and dump. These checks establish that the inputs are present.
+The release reads Supabase migration history only when the recipe-image or
+image-cleanup flag is enabled.
+
+Before an authorized cutover, use the intended credentials on the exact
+production targets from a trusted operator session. Read the Cloudflare Worker
+record and confirm `result.subdomain.url` matches the configured production URL.
+Verify Supabase release PAT authentication by reading a known Edge Function.
+For backup, verify a production-project Management API read granted to the
+backup PAT and authenticate to the intended database over verified TLS with
+`SELECT 1`. Record only the target and sanitized result. Review the provider
+policies for write and backup grants, then verify the authorized release and
+backup after cutover.
+[Cloudflare Worker metadata](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/methods/get/) ·
 [Supabase PAT permissions](https://supabase.com/docs/guides/platform/personal-access-tokens)
 
-Coordinate sequencing with [#154](https://github.com/2ton-exe/moris-mix-ai/pull/154),
-which proposes production migration steps referencing the legacy Supabase
-access token, database password, and root certificate. The dormant reusable
-Cloudflare workflow still references the generic Cloudflare names. Verify
-active and external consumers with the release and backup owners before
-retiring credentials. Keep a known-good Worker version, previous Edge Function
+PR #154 proposed migration steps that referenced legacy Supabase credentials
+and closed unmerged. The dormant reusable Cloudflare workflow still references
+the generic Cloudflare names. Verify active and external consumers with the
+release and backup owners before retiring credentials. Coordinate production
+release and rollback readiness with #165 and backup verification with #159
+before live operations. Keep a known-good Worker version, previous Edge Function
 artifacts, and an approved recovery path available for cutover. The repository
 boundary stays open until equivalent legacy access is retired or its risk is
 explicitly accepted.
+[Closed migration proposal](https://github.com/2ton-exe/moris-mix-ai/pull/154) ·
+[Rollback rehearsal](https://github.com/2ton-exe/moris-mix-ai/issues/165) ·
+[Backup and restore](https://github.com/2ton-exe/moris-mix-ai/issues/159)
 
 ### Dependency and secret findings
 
