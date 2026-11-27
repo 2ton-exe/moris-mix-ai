@@ -8,4 +8,3 @@ legacy equivalent rice cups to cup must not block oil 1 tsp to 2 tsp ... ok (572
 control: equivalent oil amount is not a real change ... ok (335µs)
 
 ok | 3 passed | 0 failed (7ms)
-

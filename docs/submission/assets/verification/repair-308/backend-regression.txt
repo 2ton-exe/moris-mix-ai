@@ -24,4 +24,3 @@ Chef oil quantity revision: two actual ingredient changes ...
 Chef oil quantity revision: two actual ingredient changes ... ok (3ms)
 
 ok | 4 passed | 0 failed | 59 filtered out (148ms)
-
