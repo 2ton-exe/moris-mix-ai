@@ -575,5 +575,7 @@ html[data-ingredient-dragging] * { cursor: grabbing !important; }
     align-self: stretch;
     row-gap: 0;
   }
+  .mm-journal-editor .recipe-ingredient-edit-step .recipe-form-field { margin-block-start: 4px; }
+  .mm-journal-editor .recipe-ingredient-edit-step .recipe-form-field label { font-size: 12px; line-height: 1.35; }
   .mm-journal-editor .recipe-ingredient-edit-step .recipe-amount-row label { overflow-wrap: normal; }
 }
