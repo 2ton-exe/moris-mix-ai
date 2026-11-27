@@ -1517,3 +1517,119 @@ Deno.test("cleanup scheduling advances ordinary work across recurring watcher ba
   assertEquals(ordinary.every((task) => task.status === "complete"), true);
   assertEquals(protectedTask.status, "queued");
 });
+
+Deno.test("image metadata handlers cancel oversized streamed bodies without Content-Length", async () => {
+  for (const handler of [attachHandler, downloadHandler, deleteHandler]) {
+    let reads = 0;
+    let cancelled = false;
+    let rpcCalls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        reads++;
+        if (reads > 3) return controller.close();
+        controller.enqueue(
+          new TextEncoder().encode(" ".repeat(reads <= 2 ? 2048 : 1)),
+        );
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }, { highWaterMark: 0 });
+    const req = new Request("https://edge.invalid", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body,
+    });
+    assertEquals(req.headers.has("Content-Length"), false);
+    const response = await handler(
+      req,
+      handlerDeps({
+        rpc: () => {
+          rpcCalls++;
+          throw new Error("Unexpected RPC");
+        },
+      }),
+    );
+    assertEquals(response.status, 413);
+    assertEquals((await response.json()).error.code, "INPUT_TOO_LARGE");
+    assertEquals(cancelled, true);
+    assertEquals(reads, 3);
+    assertEquals(rpcCalls, 0);
+  }
+});
+
+Deno.test("image metadata handlers accept streamed JSON at the byte limit", async () => {
+  for (
+    const scenario of [
+      {
+        handler: attachHandler,
+        payload: { recipe_id: RECIPE, upload_id: UPLOAD },
+        result: {
+          status: "attached",
+          content_type: "image/png",
+          byte_size: 68,
+          uploaded_at: NOW.toISOString(),
+        },
+        status: 200,
+      },
+      {
+        handler: downloadHandler,
+        payload: { recipe_id: RECIPE },
+        result: {
+          status: "found",
+          object_key: FINAL,
+          content_type: "image/png",
+        },
+        status: 200,
+      },
+      {
+        handler: deleteHandler,
+        payload: { recipe_id: RECIPE },
+        result: "deleted",
+        status: 204,
+      },
+    ]
+  ) {
+    let rpcCalls = 0;
+    const response = await scenario.handler(
+      new Request(imageRequest("metadata", scenario.payload), {
+        body:
+          new Response(JSON.stringify(scenario.payload).padEnd(4096, " ")).body,
+      }),
+      handlerDeps({
+        rpc: () => {
+          rpcCalls++;
+          return Promise.resolve({ data: scenario.result, error: null });
+        },
+      }),
+    );
+    assertEquals(response.status, scenario.status);
+    assertEquals(rpcCalls, 1);
+    await response.body?.cancel();
+  }
+});
+
+Deno.test("image metadata handlers reject malformed JSON and unreadable streams", async () => {
+  for (const handler of [attachHandler, downloadHandler, deleteHandler]) {
+    for (
+      const text of ["", "{", "null", "[]", "true", '"text"', "unreadable"]
+    ) {
+      const body = text === "unreadable"
+        ? new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.error(new Error("Disconnected"));
+          },
+        })
+        : new Response(text).body;
+      const response = await handler(
+        new Request(imageRequest("metadata", {}), { body }),
+        handlerDeps(),
+      );
+      assertEquals(response.status, 400);
+      assertEquals((await response.json()).error.code, "INVALID_JSON");
+    }
+  }
+});

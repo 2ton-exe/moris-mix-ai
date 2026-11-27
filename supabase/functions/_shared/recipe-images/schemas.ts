@@ -1,6 +1,7 @@
 import { z } from "npm:zod@4.6.6";
 
 const MAX_RECIPE_IMAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_RECIPE_IMAGE_METADATA_BYTES = 4 * 1024;
 
 export const RecipeImageContentTypeSchema = z.enum([
   "image/jpeg",
