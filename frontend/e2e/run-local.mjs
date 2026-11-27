@@ -28,6 +28,8 @@ const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const projectRoot = path.resolve(frontendDir, '..')
 const e2eWorkdir = path.join(projectRoot, '.e2e-supabase')
 const e2eSupabaseDir = path.join(e2eWorkdir, 'supabase')
+// v3 fixes native worker cache races; dlx keeps this separate from the deployment CLI.
+const supabaseArgs = ['dlx', 'supabase@3.0.0', '--workdir', e2eWorkdir]
 
 let activeCommand
 
@@ -89,12 +91,9 @@ function run(commandName, args, cwd, env, inheritOutput = false) {
   return command.done
 }
 
-function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
+function startFunctionServer(frontendDir, cliEnv) {
   const child = spawnCommand('pnpm', [
-    'exec',
-    'supabase',
-    '--workdir',
-    e2eWorkdir,
+    ...supabaseArgs,
     'functions',
     'serve',
     '--env-file',
@@ -116,7 +115,7 @@ function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
     for (const line of chunk.toString().split(/\r?\n/)) {
       if (!line.trim()) continue
       logTail.push(line.slice(-2_000))
-      if (logTail.length > 12) logTail.shift()
+      if (logTail.length > 40) logTail.shift()
     }
   }
   child.stdout.on('data', captureOutput)
@@ -128,7 +127,7 @@ function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
   return {
     child,
     failureDetail() {
-      const lines = [spawnError, ...logTail.slice(-5)].filter(Boolean)
+      const lines = [spawnError, ...logTail].filter(Boolean)
       return lines.map(redactSensitiveOutput).join(' | ')
     },
   }
@@ -180,7 +179,6 @@ async function prepareAccounts(apiUrl, serviceRoleKey) {
 
 async function main() {
   const cliEnv = createSupabaseCliEnvironment()
-  const supabaseArgs = ['exec', 'supabase', '--workdir', e2eWorkdir]
   let functionServer
   let stackStopInProgress = false
   let stackStopInterrupted = false
@@ -203,14 +201,19 @@ async function main() {
     process.stdout.write('Prepared the local-only E2E accounts. Starting local function handlers.\n')
 
     const playwrightEnv = createPlaywrightEnvironment(apiUrl, publicKey)
-    functionServer = startFunctionServer(frontendDir, e2eWorkdir, cliEnv)
+    functionServer = startFunctionServer(frontendDir, cliEnv)
     await waitForRecipesHandler(apiUrl, publicKey, functionServer)
     await waitForExtractionHandler(apiUrl, publicKey, functionServer)
     await waitForMethodNotAllowedHandler(apiUrl, publicKey, functionServer, 'generate-recipe')
     process.stdout.write('Local function handlers are responding. Starting Playwright.\n')
 
     const playwrightArguments = process.argv.slice(2).filter((argument) => argument !== '--')
-    await run('pnpm', ['exec', 'playwright', 'test', ...playwrightArguments], frontendDir, playwrightEnv, true)
+    try {
+      await run('pnpm', ['exec', 'playwright', 'test', ...playwrightArguments], frontendDir, playwrightEnv, true)
+    } catch (error) {
+      process.stderr.write(`Local function diagnostics: ${functionServer.failureDetail()}\n`)
+      throw error
+    }
   }
   const stopStackAndFunctionServer = async (signal) => {
     const errors = []
