@@ -402,7 +402,7 @@ export async function retrieveCandidateRecipes(
     totalCandidateCount += page.candidate_count;
     skipped ||= page.skipped_count > 0;
     const eligible = [...retained, ...page.candidates].filter(candidate =>
-      candidate.context_bytes + 256 <= CHEF_CANDIDATE_CONTEXT_MAX_BYTES
+      candidate.context_bytes + 258 <= CHEF_CANDIDATE_CONTEXT_MAX_BYTES
     );
     const { ranked } = rankCandidateRecipes(eligible, normalizedPantry, boundedTopK);
     retained = ranked.flatMap(item => eligible.filter(candidate => candidate.id === item.id));

@@ -620,6 +620,31 @@ Deno.test("Chef keeps global ranking and skips oversized individual bodies acros
   assertEquals(context.recipes.map(row => row.id), [rows[2].id, rows[1].id, rows[3].id]);
 });
 
+Deno.test("Chef includes envelope bytes when skipping a near-limit match for a smaller recipe", async () => {
+  const large = createMockRecipe({ star_rating: 5 });
+  const small = createMockRecipe({ id: "22222222-2222-4222-8222-222222222222", star_rating: 4 });
+  for (const contextBytes of [65_279, 65_280]) {
+    const client = createClient(TEST_SUPABASE_URL, TEST_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: async (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : input);
+        if (url.pathname.endsWith("candidate_page")) return Response.json({
+          candidates: [
+            { ...large, instructions: [], context_bytes: contextBytes },
+            { ...small, instructions: [], context_bytes: 500 },
+          ],
+          candidate_count: 2, skipped_count: 0, truncated: false, next_cursor: null,
+        });
+        assertEquals(JSON.parse(String(init?.body)).p_recipe_ids, [small.id]);
+        return Response.json({ candidates: [small], too_large: false });
+      } },
+    });
+    const context = await buildChefRecipeContext(createMockAuth(client), { pantryItems: ["rice"] }, { topK: 1 });
+    assertEquals(context.status, "MATCHED");
+    assertEquals(context.recipes.map(recipe => recipe.id), [small.id]);
+  }
+});
+
 Deno.test("retrieveCandidateRecipes bounds selected bodies and preserves scanned candidate count and truncation", async () => {
   const buildBatch = (count: number): RecipeCandidate[] =>
     Array.from({ length: count }, (_, i) => {
