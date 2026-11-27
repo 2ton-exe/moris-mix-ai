@@ -328,7 +328,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     {allowUpload && <div className="recipe-image-controls">
       {!loading && !currentDownload && !previewUrl && !preparing && !downloadError && <p role="status">No recipe photo has been added yet.</p>}
       {currentDownload && !downloadError && <p className="mm-edit-photo__attached"><ShieldCheck aria-hidden="true" />Attached privately</p>}
-      {previewUrl && <p role="status">{attached ? 'Photo attached; refreshing the saved image.' : 'Selected photo — upload to attach privately.'}</p>}
+      {previewUrl && <p role="status">{attached ? 'Photo attached privately; refresh to view it.' : 'Selected photo — upload to attach privately.'}</p>}
       <button type="button" className="button button-secondary" disabled={preparing || uploading} onClick={() => fileInput.current?.click()}>
         {currentDownload ? <RefreshCw aria-hidden="true" /> : <ImagePlus aria-hidden="true" />}{previewUrl ? 'Choose another photo' : currentDownload ? 'Replace photo' : 'Choose a photo'}
       </button>
