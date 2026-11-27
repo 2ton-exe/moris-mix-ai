@@ -175,8 +175,9 @@ test('modular PR remains PR-only, with staging and no production call or credent
 test('production deployment requires environment-scoped credentials before any deploy steps', () => {
   assert.equal(release.environment, 'production-release');
   assert.equal(main.jobs.production.environment, undefined);
-  assert.equal(main.jobs.production.secrets, undefined);
-  assert.equal(production.on.workflow_call.secrets, undefined);
+  assert.deepEqual(main.jobs.production.secrets, releaseSecrets);
+  assert.deepEqual(production.on.workflow_call.secrets,
+    Object.fromEntries(Object.keys(releaseSecrets).map(name => [name, { required: true }])));
   assert.doesNotMatch(JSON.stringify(release), /secrets\.(?:SUPABASE_ACCESS_TOKEN|CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID)\b/);
 
   const preflight = step(release, 'Validate production release credentials');

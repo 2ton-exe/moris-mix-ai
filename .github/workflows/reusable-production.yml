@@ -12,6 +12,13 @@ on:
         required: false
         type: string
         default: ''
+    secrets:
+      PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN:
+        required: true
+      PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN:
+        required: true
+      PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID:
+        required: true
 
 permissions:
   contents: read
