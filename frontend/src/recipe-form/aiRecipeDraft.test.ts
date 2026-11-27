@@ -18,7 +18,7 @@ describe('shared AI recipe mapping', () => {
       title: 'Pantry noodles',
       ingredients: [
         { name: 'noodles', quantity: null, unit: null, quantityText: 'a handful', inferred: true },
-        { name: 'soy sauce', quantity: 1, unit: 'tablespoon', inferred: false },
+        { name: 'soy sauce', quantity: 1, unit: 'tbsp', inferred: false },
       ],
       instructions: [{ step: 1, text: 'Boil the noodles.' }, { step: 2, text: 'Stir in the soy sauce.' }],
       star_rating: null,

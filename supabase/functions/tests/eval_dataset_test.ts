@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertNotEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
 import { GoogleGenerativeAIResponseError } from "npm:@google/generative-ai@0.21.0";
+import { normalizeIngredientUnit } from "../_shared/ingredient-units.ts";
 import { EVALUATION_DATASET } from "../_shared/ai/eval_dataset.ts";
 import type { ProviderFailureEvalCase } from "../_shared/ai/eval_dataset.ts";
 import {
@@ -126,7 +127,7 @@ Deno.test("extraction evaluation fixtures meet their declared expectations offli
         `${testCase.id}: missing exact-amount ingredient "${exact.name}"`,
       );
       assertEquals(ingredient.quantity, exact.quantity, `${testCase.id}: ${exact.name} quantity`);
-      assertEquals(ingredient.unit, exact.unit, `${testCase.id}: ${exact.name} unit`);
+      assertEquals(normalizeIngredientUnit(ingredient.unit), normalizeIngredientUnit(exact.unit), `${testCase.id}: ${exact.name} unit`);
       assertEquals(ingredient.inferred, exact.inferred, `${testCase.id}: ${exact.name} inferred`);
     }
 
@@ -139,7 +140,7 @@ Deno.test("extraction evaluation fixtures meet their declared expectations offli
       const declared = (testCase.expect.exactAmounts ?? []).some((exact) =>
         ingredient.name.toLowerCase().includes(exact.name.toLowerCase()) &&
         ingredient.quantity === exact.quantity &&
-        (ingredient.unit ?? null) === exact.unit &&
+        normalizeIngredientUnit(ingredient.unit ?? null) === normalizeIngredientUnit(exact.unit) &&
         ingredient.inferred === exact.inferred
       );
       assert(

@@ -116,7 +116,7 @@ it('adds ingredients, edits amounts, removes rows and submits normalized values'
   await screen.findByText('Recipe saved.')
   expect(submit.mock.calls[0][0]).toMatchObject({ title: 'Ginger rice', ingredients: [
     { name: 'ginger', quantity: null, unit: null, inferred: false },
-    { name: 'rice', quantity: 2.5, unit: 'cups', inferred: false },
+    { name: 'rice', quantity: 2.5, unit: 'cup', inferred: false },
   ] })
 })
 

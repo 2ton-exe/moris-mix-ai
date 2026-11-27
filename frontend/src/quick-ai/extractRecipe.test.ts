@@ -36,7 +36,7 @@ describe('AI-05 extraction adapter', () => {
     const api = createExtractRecipeApi(client)
     const notes = '  leftover rice\n2 eggs, soy sauce  '
 
-    await expect(api.extract(notes, request)).resolves.toEqual(recipe)
+    await expect(api.extract(notes, request)).resolves.toEqual({ ...recipe, ingredients: [recipe.ingredients[0], { ...recipe.ingredients[1], unit: 'clove' }] })
 
     expect(fetchImpl).toHaveBeenCalledOnce()
     expect(fetchImpl).toHaveBeenCalledWith('https://project.supabase.co/functions/v1/extract-recipe', {
@@ -59,4 +59,28 @@ describe('AI-05 extraction adapter', () => {
 
     await expect(api.extract('notes', request)).rejects.toBeInstanceOf(InvalidExtractionResponse)
   })
+})
+
+
+it('normalizes extracted aliases and custom units without inventing unspecified amounts', () => {
+  const parsed = extractRecipeResponseSchema.parse({ recipe: { ...recipe, ingredients: [
+    { name: 'salt', quantityText: 'to taste' },
+    { name: 'milk', quantity: 0.5, unit: 'millilitres' },
+    { name: 'flour', quantity: 2, unit: ' heaped bamboo cup ' },
+  ] } }).recipe.ingredients
+  expect(parsed).toEqual([
+    { name: 'salt', quantity: null, unit: null, quantityText: 'to taste', inferred: false },
+    { name: 'milk', quantity: 0.5, unit: 'ml', inferred: false },
+    { name: 'flour', quantity: 2, unit: 'heaped bamboo cup', inferred: false },
+  ])
+})
+
+it.each([
+  { name: ' ', quantity: 1, unit: 'cup' },
+  { name: 'rice', quantity: 0, unit: 'cup' },
+  { name: 'rice', quantity: -1, unit: 'cup' },
+  { name: 'rice', quantity: 1, unit: 'x'.repeat(101) },
+  { name: 'rice', quantity: 1, unit: 'mug\nfull' },
+])('rejects invalid extracted ingredient %j', (ingredient) => {
+  expect(extractRecipeResponseSchema.safeParse({ recipe: { ...recipe, ingredients: [ingredient] } }).success).toBe(false)
 })

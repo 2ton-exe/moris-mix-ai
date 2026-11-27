@@ -1,17 +1,10 @@
 import { z } from 'zod'
 import { apiClient } from '../api/config'
+import { ingredientInputSchema } from '../api/ingredient'
 import type { RecipeRequest } from '../recipes/types'
 
 const nullableToOptional = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((value) => value === null ? undefined : value, schema)
-
-const ingredientSchema = z.object({
-  name: z.string().min(1),
-  quantity: z.number().nonnegative().nullable().default(null),
-  unit: z.string().nullable().default(null),
-  quantityText: nullableToOptional(z.string().optional()),
-  inferred: z.boolean().default(false),
-})
 
 const instructionSchema = z.object({ step: z.number().int().positive(), text: z.string().min(1) })
 
@@ -34,7 +27,7 @@ const flavorScoresSchema = z.object({
 
 export const extractedRecipeSchema = z.object({
   title: z.string().min(1),
-  ingredients: z.array(ingredientSchema),
+  ingredients: z.array(ingredientInputSchema),
   instructions: sequentialInstructionsSchema,
   flavor_scores: nullableToOptional(flavorScoresSchema.optional()),
 })

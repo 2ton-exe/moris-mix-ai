@@ -981,7 +981,7 @@ Deno.test("extractRecipe logs metadata without prompt or recipe text", async () 
 
   assertEquals(entries.length, 1);
   assertEquals(entries[0].promptId, "extraction");
-  assertEquals(entries[0].promptVersion, "1.0.0");
+  assertEquals(entries[0].promptVersion, "1.1.0");
   assertEquals(entries[0].outcome, "success");
 
   const serialized = JSON.stringify(entries);
@@ -1058,7 +1058,7 @@ Deno.test("generateRecipe uses the Chef prompt, candidate IDs and validated outp
   assertEquals(logs.length, 1);
   assertEquals(logs[0].op, "generate");
   assertEquals(logs[0].promptId, "chef");
-  assertEquals(logs[0].promptVersion, "1.1.0");
+  assertEquals(logs[0].promptVersion, "1.2.0");
   assertFalse(JSON.stringify(logs).includes("Egg Fried Rice"));
 });
 
