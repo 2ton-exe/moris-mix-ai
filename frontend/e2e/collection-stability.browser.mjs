@@ -234,6 +234,15 @@ try {
         assert.ok(after.y + after.height - hint.y - hint.height <= 25, 'Empty chat keeps its composer and tools at the bottom when enlarged')
         assert.ok(composer.y > after.y + after.height / 2, 'An enlarged empty chat places writing below the greeting area')
         assert.ok(await chat.evaluate(element => element.scrollHeight <= element.clientHeight + 1), 'Enlarged empty chat fits without panel scrolling')
+        if (chatWidth === 1470) {
+          await chat.getByRole('button', { name: 'Write cooking notes', exact: true }).click()
+          const example = await chat.locator('.mori-chat-example').boundingBox()
+          const writing = await chat.locator('.mori-chat-composer').boundingBox()
+          assert.ok(writing.y - example.y - example.height <= 10, 'Prompt examples stay next to the composer in an enlarged empty chat')
+          await chat.getByRole('textbox', { name: 'Message Mori' }).fill('')
+          await chat.getByRole('button', { name: 'Find a saved recipe', exact: true }).click()
+          await chat.getByRole('textbox', { name: 'Message Mori' }).fill('')
+        }
         await resize.press('Enter')
         await settleJournalLayout(page)
         assert.ok((await chat.boundingBox()).height < before.height + 2, `Reset returns empty chat to its natural compact height (${before.height} → ${(await chat.boundingBox()).height})`)
