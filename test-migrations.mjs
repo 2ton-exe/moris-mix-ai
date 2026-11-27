@@ -229,6 +229,17 @@ function runDiscoveryAndIntegrityUnitTests() {
   assert.match(boundedChefCandidatesSql, /revoke all on function public\.get_chef_recipe_context_candidates\(integer, integer\) from public, anon/i);
   assert.match(boundedChefCandidatesSql, /grant execute on function public\.get_chef_recipe_context_candidates\(integer, integer\) to authenticated/i);
   assert.doesNotMatch(boundedChefCandidatesSql, /security definer/i);
+  const pagedChefCandidates = migrations.find(migration => migration.file.endsWith('_paged_chef_candidate_retrieval.sql'));
+  assert.ok(pagedChefCandidates, 'paged Chef candidate retrieval migration is present');
+  const pagedChefSql = fs.readFileSync(pagedChefCandidates.filePath, 'utf8');
+  assert.match(pagedChefSql, /get_chef_recipe_context_candidate_page/);
+  assert.match(pagedChefSql, /p_max_bytes > 131072/);
+  assert.match(pagedChefSql, /where r.user_id = v_user_id/);
+  assert.match(pagedChefSql, /order by r.created_at desc, r.id asc/);
+  assert.match(pagedChefSql, /'context_bytes', octet_length\(to_jsonb\(v_candidate\)::text\)/);
+  assert.match(pagedChefSql, /r.id = any\(p_recipe_ids\)/);
+  assert.match(pagedChefSql, /cardinality\(p_recipe_ids\) > 10/);
+  assert.doesNotMatch(pagedChefSql, /security definer|drop function/i);
   assert.match(shortWindowRateSql, /add column if not exists ai_rate_window_started_at timestamptz/i);
   assert.match(shortWindowRateSql, /add column if not exists ai_rate_window_count integer not null default 0/i);
   assert.match(shortWindowRateSql, /pg_advisory_xact_lock\(hashtext\('ai-rate:' \|\| p_user_id::text\)\)/i);
@@ -1019,6 +1030,86 @@ async function runRecipeSearchMigrationUnitTests() {
   console.log('PASS: Search migration role guards, canonical dependency restoration, and version-only history handling verified.');
 }
 
+async function runChefCandidateDatabaseTests(client) {
+  const owner = crypto.randomUUID();
+  const otherOwner = crypto.randomUUID();
+  const relevant = crypto.randomUUID();
+  const oversized = crypto.randomUUID();
+  const foreign = crypto.randomUUID();
+  await client.query('BEGIN');
+  try {
+    await client.query('INSERT INTO auth.users (id, email) VALUES ($1, $2), ($3, $4)',
+      [owner, `${owner}@chef-migration.invalid`, otherOwner, `${otherOwner}@chef-migration.invalid`]);
+    await client.query(`
+      INSERT INTO public.recipes (user_id, title, ingredients, instructions, created_at)
+      SELECT $1, 'Large journal ' || n, '[{"name":"potatoes"}]'::jsonb,
+        jsonb_build_array(jsonb_build_object('step', 1, 'text', repeat('x', 2000))),
+        '2026-11-20T00:00:00Z'::timestamptz + n * interval '1 second'
+      FROM generate_series(1, 40) n
+    `, [owner]);
+    await client.query(`
+      INSERT INTO public.recipes (id, user_id, title, ingredients, instructions, created_at)
+      VALUES ($1, $2, 'Oversized individual', '[{"name":"scallions"}]'::jsonb,
+        (SELECT jsonb_agg(jsonb_build_object('step', n, 'text', repeat('x', 2000))) FROM generate_series(1, 100) n),
+        '2026-11-22T00:00:00Z'),
+        ($3, $2, 'Older relevant recipe', '[{"name":"scallions"}]'::jsonb,
+          '[{"step":1,"text":"Saute scallions."}]'::jsonb, '2026-11-19T00:00:00Z'),
+        ($4, $5, 'Other account', '[{"name":"scallions"}]'::jsonb, '[]'::jsonb, now())
+    `, [oversized, owner, relevant, foreign, otherOwner]);
+    await client.query("SELECT set_config('request.jwt.claim.sub', $1, true), set_config('request.jwt.claim.role', 'authenticated', true)", [owner]);
+    await client.query('SET LOCAL ROLE authenticated');
+    const legacy = (await client.query('SELECT public.get_chef_recipe_context_candidates(1000, 65536) AS result')).rows[0].result;
+    assert.equal(legacy.too_large, true, 'The same journal exceeded the previous aggregate limit');
+    const summaries = [];
+    let cursor = null;
+    let totalCount = 0;
+    let pages = 0;
+    do {
+      const page = (await client.query('SELECT public.get_chef_recipe_context_candidate_page($1, $2, $3, $4) AS result',
+        [1000 - totalCount, 1600, cursor?.created_at ?? null, cursor?.id ?? null])).rows[0].result;
+      assert.ok(Buffer.byteLength(JSON.stringify(page), 'utf8') <= 1600, 'Every streamed metadata page stays within budget');
+      assert.equal(page.skipped_count, 0);
+      assert.ok(page.candidates.every(candidate => candidate.user_id === owner && candidate.instructions.length === 0));
+      summaries.push(...page.candidates);
+      totalCount += page.candidate_count;
+      cursor = page.next_cursor;
+      assert.equal(page.truncated, cursor !== null);
+      pages++;
+      assert.ok(pages <= 42, 'Cursor always progresses');
+    } while (cursor);
+    assert.ok(pages > 1);
+    assert.equal(totalCount, 42);
+    assert.equal(new Set(summaries.map(candidate => candidate.id)).size, 42);
+    assert.equal(summaries.at(-1).id, relevant, 'Older relevant candidates survive large newer recipe bodies');
+    assert.ok(summaries.find(candidate => candidate.id === oversized).context_bytes > 65536);
+    const details = (await client.query('SELECT public.get_chef_recipe_context_candidates($1::uuid[], 65536) AS result', [[relevant, foreign]])).rows[0].result;
+    assert.equal(details.too_large, false);
+    assert.deepEqual(details.candidates.map(candidate => candidate.id), [relevant], 'Selected details retain ownership checks');
+    assert.deepEqual(details.candidates[0].instructions, [{ step: 1, text: 'Saute scallions.' }]);
+    const tooLarge = (await client.query('SELECT public.get_chef_recipe_context_candidates($1::uuid[], 65536) AS result', [[oversized]])).rows[0].result;
+    assert.deepEqual(tooLarge, { candidates: [], too_large: true });
+    const capped = (await client.query('SELECT public.get_chef_recipe_context_candidate_page(1, 131072, null, null) AS result')).rows[0].result;
+    assert.equal(capped.candidate_count, 1);
+    assert.equal(capped.truncated, true);
+    await client.query("SELECT set_config('request.jwt.claim.sub', $1, true)", [otherOwner]);
+    const other = (await client.query('SELECT public.get_chef_recipe_context_candidate_page(1000, 131072, null, null) AS result')).rows[0].result;
+    assert.deepEqual(other.candidates.map(candidate => candidate.id), [foreign]);
+    const permissions = (await client.query(`
+      SELECT p.prosecdef, has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
+        has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated,
+        EXISTS (SELECT 1 FROM aclexplode(p.proacl) acl WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE') AS public
+      FROM pg_proc p WHERE p.oid IN (
+        'public.get_chef_recipe_context_candidate_page(integer,integer,timestamptz,uuid)'::regprocedure,
+        'public.get_chef_recipe_context_candidates(uuid[],integer)'::regprocedure)
+    `)).rows;
+    assert.equal(permissions.length, 2);
+    for (const row of permissions) assert.deepEqual(row, { prosecdef: false, anon: false, authenticated: true, public: false });
+  } finally {
+    await client.query('ROLLBACK');
+  }
+  console.log('PASS: Chef scans a journal above 64 KiB in bounded scoring pages, retains older candidates, bounds selected bodies, and preserves caller ownership and RPC permissions.');
+}
+
 async function runRecipeSearchMigrationDatabaseTests(client) {
   const sql = fs.readFileSync(path.join(__dirname, 'supabase/migrations/20261101000008_harden_recipe_search_rpc.sql'), 'utf8');
   const history = await client.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version');
@@ -1652,6 +1743,7 @@ async function runDatabaseLifecycleIntegrationTests() {
     await runGeminiAdmissionDatabaseTests(testClient, testDbUrl, sslConfig);
     await runRecipeImageLifecycleDatabaseTests(testClient, testDbUrl, sslConfig);
     await runRecipeSearchMigrationDatabaseTests(testClient);
+    await runChefCandidateDatabaseTests(testClient);
     assert.deepEqual(freshResult.appliedVersions.sort(), [...expectedMigrationVersions].sort());
 
     const historyRows = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version ASC;');
