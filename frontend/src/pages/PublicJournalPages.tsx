@@ -49,7 +49,7 @@ export function AboutPage() {
     </section>
   </>
   return <PublicPage title="Keep your recipes close." facing={desktop ? workflow : undefined}>
-    <p className="intro">Your recipes stay private in your account.</p>
+    <p className="intro">Your account keeps your recipes private.</p>
     {!desktop && workflow}
     {desktop && <section className="mm-public-note mm-public-workflow">
       <h2>Cook it better next time</h2>
