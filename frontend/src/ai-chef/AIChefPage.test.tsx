@@ -281,11 +281,15 @@ describe('AI Chef pantry and review workflow', () => {
     expect(logout).toHaveBeenCalledOnce()
   })
 
-  it('edits a recovered saved copy through the versioned editor after retrying its parent links', async () => {
+  it.each([
+    { desktop: true, retryLinks: true },
+    { desktop: true, retryLinks: false },
+    { desktop: false, retryLinks: false },
+  ])('edits a recovered saved copy through the versioned editor (desktop=$desktop, retryLinks=$retryLinks)', async ({ desktop, retryLinks }) => {
     const currentMatchMedia = window.matchMedia
     vi.spyOn(window, 'matchMedia').mockImplementation((query) => {
       const media = currentMatchMedia(query)
-      Object.defineProperty(media, 'matches', { value: media.matches || query.includes('pointer: fine') })
+      Object.defineProperty(media, 'matches', { value: media.matches || (desktop && query.includes('pointer: fine')) })
       return media
     })
     writeChefDraft('chef-cook', {
@@ -307,8 +311,14 @@ describe('AI Chef pantry and review workflow', () => {
     }))
     const view = renderChef({ source: { mode: 'live', list: async () => [recipe], detail: async () => recipe } })
     await act(() => view.router.navigate('/app/chef/review'))
-    fireEvent.click(await screen.findByRole('button', { name: 'Retry recipe links' }))
-    await screen.findByText('Recipe and selected parent links saved.')
+    await screen.findByRole('button', { name: 'Retry recipe links' })
+    expect(screen.queryByRole('textbox', { name: /^Recipe title$/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull()
+    expect(save).not.toHaveBeenCalled()
+    if (retryLinks) {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry recipe links' }))
+      await screen.findByText('Recipe and selected parent links saved.')
+    }
     fireEvent.click(await screen.findByRole('button', { name: 'Edit saved recipe' }))
     await waitFor(() => expect(view.router.state.location.pathname).toBe(`/app/recipes/${savedRecipeId}/edit`))
     const title = await screen.findByRole('textbox', { name: /^Recipe title$/ })

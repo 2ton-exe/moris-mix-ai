@@ -466,10 +466,11 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   />
 
   const savedTitle = confirmedTitle ?? editedDraft?.title ?? handoff.response.recipe.title
-  const reviewReceipt = desktopComparison && handoff.savedRecipeId && lineageStatus === 'confirmed' && !storageIssue && <>
+  const reviewReceipt = handoff.savedRecipeId && (recoveredRecipeId || (desktopComparison && lineageStatus === 'confirmed' && !storageIssue)) && <>
     <h2 tabIndex={-1}>{savedTitle}</h2>
     <p role="status">{completionMessage}</p>
-    {original && <p>Linked to <strong>{original.title}</strong>.</p>}
+    {original && lineageStatus === 'confirmed' && <p>Linked to <strong>{original.title}</strong>.</p>}
+    {recoveredRecipeId && <>{generationNotice()}{storageNotice}</>}
     <div className="actions">
       <Link className="button button-primary" to={'/app/recipes/' + encodeURIComponent(handoff.savedRecipeId)}>{revision ? 'Open saved version' : 'Open saved recipe'}</Link>
       {sourceRecipeId ? <Link className="button button-secondary" to={'/app/recipes/' + encodeURIComponent(sourceRecipeId)}>Open original recipe</Link>
