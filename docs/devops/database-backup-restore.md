@@ -49,22 +49,26 @@ DevOps owns the schedule, workflow, secret/environment integration, R2 storage b
 
 Do not place values in source, issues, PR bodies, screenshots, logs, or this document.
 
-Repository-level production Supabase configuration used by the backup job:
+In **Repository → Settings → Environments → production-backup → Environment secrets**,
+configure these dedicated Supabase inputs and the existing R2 credentials:
 
-- secret `SUPABASE_ACCESS_TOKEN`
-- secret `SUPABASE_DB_PASSWORD`
-- variable `SUPABASE_PROJECT_REF`
-
-The production migration path may also require `SUPABASE_DB_ROOT_CERT`. DEVOPS-10 does not create a second database password or a duplicate database URL. The backup workflow uses the repository's pinned Supabase CLI and its linked-project connection path rather than hard-coding a database connection string.
-
-`production-backup` Environment configuration:
-
+- secret `PRODUCTION_BACKUP_SUPABASE_ACCESS_TOKEN`
+- secret `PRODUCTION_BACKUP_SUPABASE_DB_PASSWORD`
 - secret `R2_BACKUP_ACCESS_KEY_ID`
 - secret `R2_BACKUP_SECRET_ACCESS_KEY`
 - secret `R2_BACKUP_ENDPOINT`
-- variable `R2_BACKUP_BUCKET=moris-mix-db-backups-prod`
+
+Under **Environment variables** for `production-backup`, set
+`R2_BACKUP_BUCKET=moris-mix-db-backups-prod`.
 
 The R2 credentials are separate from recipe-image R2 credentials and are scoped to the database-backup bucket.
+
+Keep `SUPABASE_PROJECT_REF` as the repository variable matching
+`supabase/config.toml`. The pinned CLI uses its linked-project connection path.
+The workflow supplies `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` as CLI
+environment variables for link and dump, populated from the dedicated environment
+secrets above. Keep repository and organization copies of the dedicated names
+absent. Restore drills use their own credentials and target.
 
 Sensitive values are injected only into the individual steps that need them. Checkout and CLI setup do not receive production database or R2 credentials. Supabase credentials are limited to configuration/link/dump steps; R2 credentials are limited to configuration/upload/verification steps.
 
@@ -119,10 +123,18 @@ Recipe-image storage and database-backup storage remain separate recovery concer
 
 ## Verify an authorized backup run
 
-After the workflow is merged to `main` and all required secrets/variables are confirmed by name:
+Before cutover, confirm that `production-backup` allows only `main` and all
+required entries above are present. Check the backup PAT against the production
+project and the existing database login with a read-only `SELECT 1` over
+hostname-verified TLS. Record outcomes without secret values.
 
-1. Verify the `production-backup` Environment's deployment-branch policy is restricted appropriately; do not record secret values.
-2. Manually dispatch **Production Database Backup** from `main`.
+After the updated workflow reaches `main`:
+
+1. Manually dispatch **Production Database Backup** from `main` with owner
+   authorization.
+2. If `Validate Supabase backup configuration` fails, correct the named input
+   in `production-backup` before an authorized rerun. For a failed link or dump,
+   check the project target and credential permissions before retrying.
 3. Confirm the workflow identifies the intended production project without printing credentials.
 4. Confirm the shared production concurrency boundary is active and no repository-managed production release/migration overlaps the capture.
 5. Confirm the normalized role/schema/migration-history pre/post consistency comparisons pass.

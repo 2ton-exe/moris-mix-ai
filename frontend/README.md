@@ -147,8 +147,8 @@ under **Settings → Secrets and variables → Actions → Variables**:
 
 The deployment job checks for the URL and one public key before building. These
 values are embedded in the browser bundle, so never use a service-role key or
-another private credential. The existing `CLOUDFLARE_API_TOKEN` and
-`CLOUDFLARE_ACCOUNT_ID` remain GitHub Actions secrets.
+another private credential. Configure deployment secrets separately in the
+[`production-release` environment](../docs/devops/deployment-runbook.md#8-deployment-credentials).
 
 Ensure BE-03 is deployed with the demo seed and the
 approved frontend origin in CORS. Then verify in a browser that `/demo-recipe`
