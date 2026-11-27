@@ -290,7 +290,7 @@ try {
   await page.getByRole('button', { name: 'Edit ingredient 2: Tomatoes' }).click()
   await expect(page.getByLabel('Ingredient 2 name')).toHaveValue('Tomatoes')
   await expect(page.getByLabel('Ingredient 2 quantity')).toHaveValue('3')
-  await expect(page.getByLabel('Ingredient 2 unit')).toHaveValue('pieces')
+  await expect(page.getByLabel('Ingredient 2 unit')).toHaveValue('piece')
   await expect(page.getByLabel('Ingredient 2 amount description (optional)')).toHaveValue('about three')
   await page.getByRole('button', { name: 'Done' }).click()
   await expect(page.getByRole('dialog', { name: 'Move ingredient' })).toHaveCount(0)
