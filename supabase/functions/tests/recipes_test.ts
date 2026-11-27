@@ -2358,7 +2358,6 @@ Deno.test("Conditional PATCH preserves notes when a second cook update uses a st
     );
 
   const invalid = await update({
-    title: "No notes submitted",
     expected_updated_at: originalVersion,
   });
   assertEquals(invalid.status, 400);
@@ -2396,6 +2395,62 @@ Deno.test("Conditional PATCH preserves notes when a second cook update uses a st
   });
   assertEquals(missing.status, 404);
   assertEquals((await missing.json()).error.code, "NOT_FOUND");
+});
+
+Deno.test("Conditional PATCH prevents an older title editor from overwriting newer recipe content", async () => {
+  const originalVersion = "2026-11-26T06:00:00+00:00";
+  const newVersion = "2026-11-27T06:00:00+00:00";
+  let recipe = persistedRecipeRow({ updated_at: originalVersion });
+  const olderEditor = {
+    title: "Older editor title",
+    ingredients: recipe.ingredients,
+    instructions: recipe.instructions,
+    star_rating: recipe.star_rating,
+    expected_updated_at: originalVersion,
+  };
+  const fetch: typeof globalThis.fetch = (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    const json = (body: unknown) => Promise.resolve(Response.json(body));
+    if (url.pathname === "/auth/v1/user") {
+      return json({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated" });
+    }
+    assertEquals(url.pathname, "/rest/v1/recipes");
+    assertEquals(url.searchParams.get("id"), "eq." + CREATED_RECIPE_ID);
+    assertEquals(url.searchParams.get("user_id"), "eq." + VERIFIED_USER_ID);
+    if (init?.method === "PATCH") {
+      assertEquals(url.searchParams.get("updated_at"), "eq." + originalVersion);
+      if (recipe.updated_at !== originalVersion) return json([]);
+      const changes = JSON.parse(String(init.body));
+      assertEquals("expected_updated_at" in changes, false);
+      recipe = { ...recipe, ...changes, updated_at: newVersion };
+      return json([recipe]);
+    }
+    assertEquals(url.searchParams.get("select"), "id");
+    return json([{ id: recipe.id }]);
+  };
+  const update = (body: unknown) => handler(new Request(
+    `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+    {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  ), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch });
+
+  const newerEditor = {
+    title: "Newer editor title",
+    ingredients: [{ name: "lentils", quantity: 1, unit: "cup", inferred: false }],
+    instructions: [{ step: 1, text: "Simmer slowly." }],
+    star_rating: 5,
+    expected_updated_at: originalVersion,
+  };
+  const saved = await update(newerEditor);
+  assertEquals(saved.status, 200);
+  const savedRecipe = (await saved.json()).recipe;
+  const stale = await update(olderEditor);
+  assertEquals(stale.status, 409);
+  assertEquals((await stale.json()).error.code, "RECIPE_CHANGED");
+  assertEquals(recipe, savedRecipe);
 });
 
 Deno.test("Authenticated PATCH /recipes/:id clears notes with explicit null while preserving raw_input and vice versa", async () => {

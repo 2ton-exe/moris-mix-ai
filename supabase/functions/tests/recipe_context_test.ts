@@ -10,7 +10,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.3
 import { type AuthContext } from "../_shared/auth.ts";
 import {
   buildChefRecipeContext,
-  CHEF_CANDIDATE_CONTEXT_MAX_BYTES,
+  CHEF_CANDIDATE_PAGE_MAX_BYTES,
   ChefCandidateContextTooLargeError,
   compareOrdinal,
   compareRankedCandidates,
@@ -107,16 +107,22 @@ function createRecordingSupabaseMock(options: {
   const clientObj: Record<string, unknown> = {
     rpc: (functionName: string, args: Record<string, unknown> = {}) => {
       rpcCalls.push({ functionName, args });
+      const source = options.primaryResponse.data;
+      const recipeIds = Array.isArray(args.p_recipe_ids) ? args.p_recipe_ids : [];
       const responseData = options.contextResponse !== undefined
         ? options.contextResponse
-        : Array.isArray(options.primaryResponse.data)
-        ? {
-          candidates: options.primaryResponse.data,
-          candidate_count: options.primaryResponse.data.length,
-          truncated: options.truncated ?? false,
-          too_large: false,
-        }
-        : options.primaryResponse.data;
+        : Array.isArray(source)
+        ? functionName === "get_chef_recipe_context_candidate_page"
+          ? {
+            candidates: source.map(candidate => ({ ...candidate, instructions: [], context_bytes: JSON.stringify(candidate).length })),
+            candidate_count: source.length,
+            skipped_count: 0,
+            truncated: options.truncated ?? false,
+            next_cursor: options.truncated ? source.at(-1) : null,
+          }
+          : { candidates: source.filter(candidate => recipeIds.includes(candidate.id))
+              .sort((a, b) => recipeIds.indexOf(a.id) - recipeIds.indexOf(b.id)), too_large: false }
+        : source;
       return Promise.resolve({ data: responseData, error: options.primaryResponse.error });
     },
     from: (table: string) => {
@@ -542,7 +548,104 @@ Deno.test("validateAuthContext rejects invalid user IDs, missing clients, non-au
   );
 });
 
-Deno.test("retrieveCandidateRecipes requests one bounded snapshot and preserves candidate count and truncation", async () => {
+Deno.test("Chef ranks across bounded scoring pages before fetching recipe bodies", async () => {
+  const irrelevant = createMockRecipe({
+    id: "22222222-2222-4222-8222-222222222222",
+    ingredients: [mockIng("potatoes")],
+    instructions: [{ step: 1, text: "x".repeat(70_000) }],
+  });
+  const relevant = createMockRecipe({
+    ingredients: [mockIng("scallions")],
+  });
+  const calls: string[] = [];
+  const client = {
+    from() { throw new Error("Unexpected unbounded table query"); },
+    rpc(name: string, args: Record<string, unknown>) {
+      calls.push(name);
+      if (name === "get_chef_recipe_context_candidate_page") {
+        const last = args.p_after_id !== null;
+        const recipe = last ? relevant : irrelevant;
+        return Promise.resolve({ error: null, data: {
+          candidates: [{ ...recipe, instructions: [], context_bytes: last ? 600 : 80_000 }],
+          candidate_count: 1,
+          skipped_count: 0,
+          truncated: !last,
+          next_cursor: last ? null : { id: irrelevant.id, created_at: irrelevant.created_at },
+        } });
+      }
+      assertEquals(name, "get_chef_recipe_context_candidates");
+      assertEquals(args.p_recipe_ids, [relevant.id]);
+      return Promise.resolve({ error: null, data: { candidates: [relevant], too_large: false } });
+    },
+  };
+  const context = await buildChefRecipeContext(createMockAuth(client as unknown as SupabaseClient), {
+    pantryItems: ["green onion"],
+  });
+  assertEquals(context.status, "MATCHED");
+  assertEquals(context.totalCandidateCount, 2);
+  assertEquals(context.matchedCandidateCount, 1);
+  assertEquals(context.truncated, false);
+  assertEquals(context.recipes.map(recipe => recipe.id), [relevant.id]);
+  assertEquals(context.recipes[0].instructions, relevant.instructions);
+  assertEquals(calls, ["get_chef_recipe_context_candidate_page", "get_chef_recipe_context_candidate_page", "get_chef_recipe_context_candidates"]);
+});
+
+Deno.test("Chef keeps global ranking and skips oversized individual bodies across pages", async () => {
+  const rows = [
+    createMockRecipe({ id: "11111111-1111-4111-8111-111111111111", star_rating: 5, ingredients: [mockIng("onion"), mockIng("rice")], instructions: [{ step: 1, text: "x".repeat(70_000) }] }),
+    createMockRecipe({ id: "22222222-2222-4222-8222-222222222222", star_rating: 5, ingredients: [mockIng("rice"), mockIng("garlic")] }),
+    createMockRecipe({ id: "33333333-3333-4333-8333-333333333333", star_rating: 1, ingredients: [mockIng("rice")] }),
+    createMockRecipe({ id: "44444444-4444-4444-8444-444444444444", star_rating: 4, ingredients: [mockIng("rice"), mockIng("garlic")] }),
+  ];
+  const client = {
+    from() { throw new Error("Unexpected table query"); },
+    rpc(name: string, args: Record<string, unknown>) {
+      if (name.endsWith("candidate_page")) {
+        const offset = args.p_after_id === null ? 0 : rows.findIndex(row => row.id === args.p_after_id) + 1;
+        const candidates = rows.slice(offset, offset + 2);
+        const more = offset + 2 < rows.length;
+        return Promise.resolve({ error: null, data: {
+          candidates: candidates.map(row => ({ ...row, instructions: [], context_bytes: row.id === rows[0].id ? 80_000 : 400 })),
+          candidate_count: candidates.length, skipped_count: 0,
+          truncated: more, next_cursor: more ? candidates.at(-1) : null,
+        } });
+      }
+      assertEquals(args.p_recipe_ids, [rows[2].id, rows[1].id, rows[3].id]);
+      return Promise.resolve({ error: null, data: { candidates: [rows[2], rows[1], rows[3]], too_large: false } });
+    },
+  };
+  const context = await buildChefRecipeContext(createMockAuth(client as unknown as SupabaseClient), { pantryItems: ["rice"] });
+  assertEquals(context.totalCandidateCount, 4);
+  assertEquals(context.matchedCandidateCount, 4);
+  assertEquals(context.recipes.map(row => row.id), [rows[2].id, rows[1].id, rows[3].id]);
+});
+
+Deno.test("Chef includes envelope bytes when skipping a near-limit match for a smaller recipe", async () => {
+  const large = createMockRecipe({ star_rating: 5 });
+  const small = createMockRecipe({ id: "22222222-2222-4222-8222-222222222222", star_rating: 4 });
+  for (const contextBytes of [65_279, 65_280]) {
+    const client = createClient(TEST_SUPABASE_URL, TEST_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: async (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : input);
+        if (url.pathname.endsWith("candidate_page")) return Response.json({
+          candidates: [
+            { ...large, instructions: [], context_bytes: contextBytes },
+            { ...small, instructions: [], context_bytes: 500 },
+          ],
+          candidate_count: 2, skipped_count: 0, truncated: false, next_cursor: null,
+        });
+        assertEquals(JSON.parse(String(init?.body)).p_recipe_ids, [small.id]);
+        return Response.json({ candidates: [small], too_large: false });
+      } },
+    });
+    const context = await buildChefRecipeContext(createMockAuth(client), { pantryItems: ["rice"] }, { topK: 1 });
+    assertEquals(context.status, "MATCHED");
+    assertEquals(context.recipes.map(recipe => recipe.id), [small.id]);
+  }
+});
+
+Deno.test("retrieveCandidateRecipes bounds selected bodies and preserves scanned candidate count and truncation", async () => {
   const buildBatch = (count: number): RecipeCandidate[] =>
     Array.from({ length: count }, (_, i) => {
       const second = String(59 - Math.floor(i / 20)).padStart(2, "0");
@@ -557,27 +660,29 @@ Deno.test("retrieveCandidateRecipes requests one bounded snapshot and preserves 
     });
 
   const mock0 = createRecordingSupabaseMock({ primaryResponse: { data: [], error: null } });
-  const res0 = await retrieveCandidateRecipes(createMockAuth(mock0.client), 1000);
+  const res0 = await retrieveCandidateRecipes(createMockAuth(mock0.client), 1000, ["rice"]);
   assertEquals(res0.candidates.length, 0);
   assertEquals(res0.truncated, false);
   assertEquals(mock0.calls, []);
   assertEquals(mock0.rpcCalls, [{
-    functionName: "get_chef_recipe_context_candidates",
-    args: { p_max_candidates: 1000, p_max_bytes: CHEF_CANDIDATE_CONTEXT_MAX_BYTES },
+    functionName: "get_chef_recipe_context_candidate_page",
+    args: { p_max_candidates: 1000, p_max_bytes: CHEF_CANDIDATE_PAGE_MAX_BYTES, p_after_created_at: null, p_after_id: null },
   }]);
 
   const rows999 = buildBatch(999);
   const mock999 = createRecordingSupabaseMock({ primaryResponse: { data: rows999, error: null } });
-  const res999 = await retrieveCandidateRecipes(createMockAuth(mock999.client), 1000);
-  assertEquals(res999.candidates.length, 999);
+  const res999 = await retrieveCandidateRecipes(createMockAuth(mock999.client), 1000, ["rice"]);
+  assertEquals(res999.candidates.length, 3);
+  assertEquals(res999.totalCandidateCount, 999);
   assertEquals(res999.truncated, false);
 
   const rows1000 = buildBatch(1000);
   const mock1000Exact = createRecordingSupabaseMock({
     primaryResponse: { data: rows1000, error: null },
   });
-  const res1000Exact = await retrieveCandidateRecipes(createMockAuth(mock1000Exact.client), 1000);
-  assertEquals(res1000Exact.candidates.length, 1000);
+  const res1000Exact = await retrieveCandidateRecipes(createMockAuth(mock1000Exact.client), 1000, ["rice"]);
+  assertEquals(res1000Exact.candidates.length, 3);
+  assertEquals(res1000Exact.totalCandidateCount, 1000);
   assertEquals(res1000Exact.truncated, false);
 
   const mock1001 = createRecordingSupabaseMock({
@@ -593,27 +698,24 @@ Deno.test("retrieveCandidateRecipes requests one bounded snapshot and preserves 
   assertEquals(ctx1001.recipes.length, 3);
 });
 
-Deno.test("retrieveCandidateRecipes rejects oversized aggregate candidate data before rows are returned", async () => {
+Deno.test("retrieveCandidateRecipes keeps the individual context limit when no matching recipe fits", async () => {
   const mock = createRecordingSupabaseMock({
     primaryResponse: { data: null, error: null },
     contextResponse: {
-      candidates: [],
-      candidate_count: 1000,
-      truncated: true,
-      too_large: true,
+      candidates: [{ ...createMockRecipe(), instructions: [], context_bytes: 80_000 }],
+      candidate_count: 1,
+      skipped_count: 0,
+      truncated: false,
+      next_cursor: null,
     },
   });
-  const error = await assertRejects(
-    () => retrieveCandidateRecipes(createMockAuth(mock.client), 1000),
+  await assertRejects(
+    () => retrieveCandidateRecipes(createMockAuth(mock.client), 1000, ["rice"]),
     ChefCandidateContextTooLargeError,
     "CANDIDATE_CONTEXT_TOO_LARGE",
   );
-  assertEquals(error instanceof ChefCandidateContextTooLargeError, true);
   assertEquals(mock.calls, []);
-  assertEquals(mock.rpcCalls, [{
-    functionName: "get_chef_recipe_context_candidates",
-    args: { p_max_candidates: 1000, p_max_bytes: CHEF_CANDIDATE_CONTEXT_MAX_BYTES },
-  }]);
+  assertEquals(mock.rpcCalls.length, 1);
 });
 
 Deno.test("retrieveCandidateRecipes rejects malformed responses, RPC errors, owner mismatches, and invalid maxCandidates", async () => {
@@ -691,7 +793,7 @@ Deno.test("buildChefRecipeContext accepts input size limits and preserves prefer
   assertEquals(result.status, "MATCHED");
   assertEquals(result.pantryItems, pantryItems.map((_, index) => `ingredient ${index}`));
   assertEquals(result.preferences, preferences);
-  assertEquals(mock.rpcCalls.length, 1);
+  assertEquals(mock.rpcCalls.length, 2);
   const prompt = formatChefRecipeContextForPrompt(result);
   assertEquals(prompt.includes(`Available pantry ingredients: ${result.pantryItems.join(", ")}`), true);
   assertEquals(prompt.includes(`User preferences: ${preferences.trim()}`), true);
@@ -892,7 +994,8 @@ Deno.test("resolveChefRecipeContextForRequest enforces authenticated RPC candida
       );
     }
 
-    if (url.pathname === "/rest/v1/rpc/get_chef_recipe_context_candidates") {
+    if (url.pathname === "/rest/v1/rpc/get_chef_recipe_context_candidates" ||
+      url.pathname === "/rest/v1/rpc/get_chef_recipe_context_candidate_page") {
       postgrestCalls++;
       capturedUrls.push(url);
       let reqBody: Record<string, unknown> = {};
@@ -911,11 +1014,16 @@ Deno.test("resolveChefRecipeContextForRequest enforces authenticated RPC candida
         ? reqBody.p_max_candidates
         : 1000;
       const candidates = visible.slice(0, limit);
+      const page = url.pathname.endsWith("candidate_page");
       return Promise.resolve(
-        new Response(JSON.stringify({
-          candidates,
+        new Response(JSON.stringify(page ? {
+          candidates: candidates.map(candidate => ({ ...candidate, instructions: [], context_bytes: JSON.stringify(candidate).length })),
           candidate_count: candidates.length,
-          truncated: visible.length > candidates.length,
+          skipped_count: 0,
+          truncated: false,
+          next_cursor: null,
+        } : {
+          candidates: candidates.filter(candidate => Array.isArray(reqBody.p_recipe_ids) && reqBody.p_recipe_ids.includes(candidate.id)),
           too_large: false,
         }), {
           status: 200,
@@ -982,10 +1090,10 @@ Deno.test("resolveChefRecipeContextForRequest enforces authenticated RPC candida
     assertEquals(userARes.data.recipes[0].title, "User A Garlic Soup");
     assertEquals(userARes.data.preferences, "savory");
   }
-  assertEquals(postgrestCalls, 1);
-  assertEquals(capturedUrls[0].pathname, "/rest/v1/rpc/get_chef_recipe_context_candidates");
+  assertEquals(postgrestCalls, 2);
+  assertEquals(capturedUrls[0].pathname, "/rest/v1/rpc/get_chef_recipe_context_candidate_page");
   assertEquals(capturedRpcArgs[0].p_max_candidates, 1000);
-  assertEquals(capturedRpcArgs[0].p_max_bytes, CHEF_CANDIDATE_CONTEXT_MAX_BYTES);
+  assertEquals(capturedRpcArgs[0].p_max_bytes, CHEF_CANDIDATE_PAGE_MAX_BYTES);
 });
 
 Deno.test("formatChefRecipeContextForPrompt formats cold-start and matched states and validates context invariants", () => {

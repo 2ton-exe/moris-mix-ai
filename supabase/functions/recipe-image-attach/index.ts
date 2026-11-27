@@ -1,3 +1,4 @@
+import { readBodyWithinByteLimit } from "../_shared/ai/http.ts";
 import { type AuthDeps, authenticateRequest } from "../_shared/auth.ts";
 import {
   getCorsHeaders,
@@ -10,6 +11,7 @@ import {
   type LifecycleDeps,
 } from "../_shared/recipe-images/lifecycle.ts";
 import {
+  MAX_RECIPE_IMAGE_METADATA_BYTES,
   RecipeImageAttachRequestSchema,
   RecipeImageMetadataSchema,
 } from "../_shared/recipe-images/schemas.ts";
@@ -55,16 +57,6 @@ function authFailure(response: Response): Response {
   );
   return new Response(response.body, { status: response.status, headers });
 }
-async function readBody(req: Request): Promise<unknown | null> {
-  try {
-    const body = await req.json();
-    return body !== null && typeof body === "object" && !Array.isArray(body)
-      ? body
-      : null;
-  } catch {
-    return null;
-  }
-}
 
 export async function handler(
   req: Request,
@@ -83,8 +75,34 @@ export async function handler(
   if (!auth.ok) {
     return authFailure(auth.response);
   }
-  const body = await readBody(req);
-  if (!body) {
+  const read = await readBodyWithinByteLimit(
+    req,
+    MAX_RECIPE_IMAGE_METADATA_BYTES,
+  );
+  if (!read.ok) {
+    return read.reason === "too_large"
+      ? failure(
+        "INPUT_TOO_LARGE",
+        `Request body must be at most ${MAX_RECIPE_IMAGE_METADATA_BYTES} bytes.`,
+        413,
+      )
+      : failure(
+        "INVALID_JSON",
+        "Request body must be a valid JSON object.",
+        400,
+      );
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(read.text);
+  } catch {
+    return failure(
+      "INVALID_JSON",
+      "Request body must be a valid JSON object.",
+      400,
+    );
+  }
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
     return failure(
       "INVALID_JSON",
       "Request body must be a valid JSON object.",

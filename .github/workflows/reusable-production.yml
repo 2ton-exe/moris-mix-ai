@@ -141,8 +141,23 @@ jobs:
           PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/verify-production-worker-url.mjs
 
+      - name: Verify Chef database prerequisite
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          migrations="$(curl --fail --silent --show-error --max-time 30 \
+            --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/migrations")"
+          if ! jq -e 'type == "array" and any(.[]; .version == "20261127113008")' <<< "$migrations" >/dev/null 2>&1; then
+            echo "::error::Could not verify required Chef migration 20261127113008. Apply it through the guarded database release before deploying the new Chef handler."
+            exit 1
+          fi
+
       - name: Verify recipe image release prerequisites
-        if: env.VITE_RECIPE_IMAGES == 'true' || vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'
+        if: env.VITE_RECIPE_IMAGES == 'true' || vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' || vars.RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'
         env:
           RECIPE_IMAGE_CLEANUP_ENABLED: ${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' && 'true' || 'false' }}
           PRODUCTION_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
@@ -279,6 +294,36 @@ jobs:
             --use-api \
             --yes
 
+      - name: Deploy recipe-image-final-cleanup Edge Function
+        id: deploy-recipe-image-final-cleanup
+        if: vars.RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'
+        working-directory: frontend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy recipe-image-final-cleanup \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --no-verify-jwt \
+            --use-api \
+            --yes
+
+      - name: Verify finalized image cleanup availability
+        id: final-cleanup-health
+        if: vars.RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          status="$(curl --silent --show-error --max-time 30 --max-filesize 4096 \
+            --output "$response_file" --write-out '%{http_code}' --request POST \
+            "${VITE_SUPABASE_URL%/}/functions/v1/recipe-image-final-cleanup")"
+          if [[ "$status" != 401 ]] || ! jq -e 'type == "object" and .error == "unauthorized"' "$response_file" >/dev/null 2>&1; then
+            echo "::error::Finalized cleanup must return its unauthorized JSON with 401; received ${status}. Check gateway JWT settings, deployment, and its separate runtime token."
+            exit 1
+          fi
+
       - name: Deploy recipe-image-upload-url Edge Function
         id: deploy-recipe-image-upload-url
         if: env.VITE_RECIPE_IMAGES == 'true'
@@ -349,6 +394,8 @@ jobs:
           ACCOUNT_EXPORT_OUTCOME: ${{ steps.deploy-account-export.outcome }}
           IMAGE_ATTACH_OUTCOME: ${{ steps.deploy-recipe-image-attach.outcome }}
           IMAGE_DOWNLOAD_OUTCOME: ${{ steps.deploy-recipe-image-download-url.outcome }}
+          IMAGE_FINAL_CLEANUP_OUTCOME: ${{ steps.deploy-recipe-image-final-cleanup.outcome }}
+          IMAGE_FINAL_CLEANUP_HEALTH_OUTCOME: ${{ steps.final-cleanup-health.outcome }}
           IMAGE_CLEANUP_OUTCOME: ${{ steps.deploy-recipe-image-cleanup.outcome }}
           IMAGE_SIGNER_OUTCOME: ${{ steps.deploy-recipe-image-upload-url.outcome }}
           EXTRACT_RECIPE_OUTCOME: ${{ steps.deploy-extract-recipe.outcome }}
@@ -367,6 +414,8 @@ jobs:
             echo "- recipe image attachment deployment command: ${IMAGE_ATTACH_OUTCOME}"
             echo "- recipe image private download deployment command: ${IMAGE_DOWNLOAD_OUTCOME}"
             echo "- recipe image cleanup deployment command: ${IMAGE_CLEANUP_OUTCOME}"
+            echo "- finalized image cleanup deployment command: ${IMAGE_FINAL_CLEANUP_OUTCOME}"
+            echo "- finalized image cleanup availability: ${IMAGE_FINAL_CLEANUP_HEALTH_OUTCOME}"
             echo "- recipe image signer deployment command: ${IMAGE_SIGNER_OUTCOME}"
             echo "- extract-recipe deployment command: ${EXTRACT_RECIPE_OUTCOME}"
             echo "- generate-recipe deployment command: ${GENERATE_RECIPE_OUTCOME}"

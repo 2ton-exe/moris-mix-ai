@@ -31,7 +31,7 @@ export function createRecipeFormApi(client: typeof apiClient = apiClient) {
       if (original && (original.id !== id || original.userId !== request.userId)) throw new InvalidRecipeData()
       const notesChanged = !original || draft.notes !== (original.values.notes ?? '')
       const dateChanged = !original || draft.cooked_at !== original.values.cooked_at
-      if (original && (notesChanged || dateChanged) && !original.updatedAt) throw new HttpError('http', 'Recipe version is unavailable.', 409)
+      if (id !== undefined && !original?.updatedAt) throw new HttpError('http', 'Recipe version is unavailable.', 409)
       const body = {
         title: draft.title,
         ingredients: draft.ingredients,
@@ -39,7 +39,7 @@ export function createRecipeFormApi(client: typeof apiClient = apiClient) {
         star_rating: draft.star_rating,
         ...(dateChanged ? { cooked_at: draft.cooked_at } : {}),
         ...(notesChanged ? { notes: draft.notes } : {}),
-        ...(original && (notesChanged || dateChanged) ? { expected_updated_at: original.updatedAt } : {}),
+        ...(id !== undefined ? { expected_updated_at: original?.updatedAt } : {}),
       }
       const response = id !== undefined
         ? await client.patchAuthenticatedJson(`${recipesPath}/${encodeURIComponent(id)}`, body, request)

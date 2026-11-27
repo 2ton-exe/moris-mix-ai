@@ -1,3 +1,4 @@
+import { z } from "npm:zod@4.6.6";
 import { normalizePantryIngredient } from "../ingredient-identity.ts";
 import {
   authenticateRequest,
@@ -22,6 +23,18 @@ import {
 export type RecipeCandidate = ChefContextCandidate;
 
 export const CHEF_CANDIDATE_CONTEXT_MAX_BYTES = 64 * 1024;
+// A valid recipe can have 100 ingredient names of 200 Unicode characters each.
+export const CHEF_CANDIDATE_PAGE_MAX_BYTES = 128 * 1024;
+
+const candidatePageSchema = z.object({
+  candidates: z.array(ChefContextCandidateSchema.extend({
+    context_bytes: z.number().int().positive(),
+  })).max(1000),
+  candidate_count: z.number().int().min(0).max(1000),
+  skipped_count: z.number().int().min(0).max(1000),
+  truncated: z.boolean(),
+  next_cursor: ChefContextCandidateSchema.pick({ id: true, created_at: true }).nullable(),
+});
 
 export class ChefCandidateContextTooLargeError extends Error {
   constructor() {
@@ -336,59 +349,95 @@ export function rankCandidateRecipes(
 export async function retrieveCandidateRecipes(
   auth: AuthContext,
   maxLimit: number = 1000,
-): Promise<{ candidates: RecipeCandidate[]; truncated: boolean }> {
+  pantryItems: string[] = [],
+  topK: number = 3,
+): Promise<{
+  candidates: RecipeCandidate[];
+  truncated: boolean;
+  totalCandidateCount: number;
+  matchedCandidateCount: number;
+}> {
   const { userId, supabase } = validateAuthContext(auth);
   const boundedLimit = ChefMaxCandidatesSchema.parse(maxLimit);
+  const boundedTopK = ChefTopKSchema.parse(topK);
+  const normalizedPantry = normalizePantryItems(pantryItems);
+  const pantrySet = new Set(normalizedPantry);
+  let cursor: z.infer<typeof candidatePageSchema>["next_cursor"] = null;
+  let retained: z.infer<typeof candidatePageSchema>["candidates"] = [];
+  let totalCandidateCount = 0;
+  let matchedCandidateCount = 0;
+  let skipped = false;
 
-  const { data, error } = await supabase.rpc(
-    "get_chef_recipe_context_candidates",
-    {
-      p_max_candidates: boundedLimit,
-      p_max_bytes: CHEF_CANDIDATE_CONTEXT_MAX_BYTES,
-    },
-  );
+  do {
+    const { data, error } = await supabase.rpc(
+      "get_chef_recipe_context_candidate_page",
+      {
+        p_max_candidates: boundedLimit - totalCandidateCount,
+        p_max_bytes: CHEF_CANDIDATE_PAGE_MAX_BYTES,
+        p_after_created_at: cursor?.created_at ?? null,
+        p_after_id: cursor?.id ?? null,
+      },
+    );
+    const result = candidatePageSchema.safeParse(data);
+    if (error || !result.success) {
+      throw new Error(`CANDIDATE_RETRIEVAL_FAILED: ${result.success ? "RPC failure" : result.error.message}`);
+    }
+    const page = result.data;
+    if (
+      page.candidate_count !== page.candidates.length + page.skipped_count ||
+      page.candidate_count > boundedLimit - totalCandidateCount ||
+      page.truncated !== (page.next_cursor !== null) ||
+      (page.truncated && page.candidate_count === 0) ||
+      (cursor && page.next_cursor?.id === cursor.id)
+    ) throw new Error("CANDIDATE_RETRIEVAL_FAILED: invalid page progress");
 
-  if (
-    error || !data || typeof data !== "object" || Array.isArray(data)
-  ) {
-    throw new Error(`CANDIDATE_RETRIEVAL_FAILED: ${error?.message ?? "invalid response"}`);
-  }
+    for (const candidate of page.candidates) {
+      if (candidate.user_id.toLowerCase() !== userId.toLowerCase()) {
+        throw new Error("OWNER_MISMATCH_DETECTED");
+      }
+      if (computeIngredientOverlap(candidate.ingredients, pantrySet).ratio > 0) {
+        matchedCandidateCount++;
+      }
+    }
+    totalCandidateCount += page.candidate_count;
+    skipped ||= page.skipped_count > 0;
+    const eligible = [...retained, ...page.candidates].filter(candidate =>
+      candidate.context_bytes + 258 <= CHEF_CANDIDATE_CONTEXT_MAX_BYTES
+    );
+    const { ranked } = rankCandidateRecipes(eligible, normalizedPantry, boundedTopK);
+    retained = ranked.flatMap(item => eligible.filter(candidate => candidate.id === item.id));
+    cursor = page.next_cursor;
+  } while (cursor && totalCandidateCount < boundedLimit);
 
-  const result = data as Record<string, unknown>;
-  const candidates = result.candidates;
-  const candidateCount = result.candidate_count;
-  const truncated = result.truncated;
-  const tooLarge = result.too_large;
-  if (
-    !Array.isArray(candidates) ||
-    typeof candidateCount !== "number" || !Number.isInteger(candidateCount) ||
-    candidateCount < 0 ||
-    candidateCount > boundedLimit || typeof truncated !== "boolean" ||
-    typeof tooLarge !== "boolean" ||
-    candidates.length !== (tooLarge ? 0 : candidateCount) ||
-    (truncated && candidateCount !== boundedLimit) ||
-    (tooLarge && candidateCount === 0)
-  ) {
-    throw new Error("CANDIDATE_RETRIEVAL_FAILED: invalid response");
-  }
-  if (tooLarge) {
+  if (matchedCandidateCount > 0 && retained.length === 0) {
     throw new ChefCandidateContextTooLargeError();
   }
-
-  for (const row of candidates) {
-    if (
-      typeof row !== "object" ||
-      row === null ||
-      typeof (row as { user_id?: unknown }).user_id !== "string"
-    ) {
-      throw new Error("CANDIDATE_VALIDATION_FAILED: missing user_id");
-    }
-    if ((row as { user_id: string }).user_id.toLowerCase() !== userId.toLowerCase()) {
-      throw new Error("OWNER_MISMATCH_DETECTED");
-    }
+  // Keep the highest-ranked prefix within the recipe-body budget.
+  let contextBytes = 256;
+  const ids: string[] = [];
+  for (const candidate of retained) {
+    if (contextBytes + candidate.context_bytes + 2 > CHEF_CANDIDATE_CONTEXT_MAX_BYTES) break;
+    contextBytes += candidate.context_bytes + 2;
+    ids.push(candidate.id);
   }
-
-  return { candidates: candidates.map((row) => validateCandidateRecipe(row)), truncated };
+  let candidates: RecipeCandidate[] = [];
+  if (ids.length > 0) {
+    const { data, error } = await supabase.rpc("get_chef_recipe_context_candidates", {
+      p_recipe_ids: ids,
+      p_max_bytes: CHEF_CANDIDATE_CONTEXT_MAX_BYTES,
+    });
+    const result = z.object({
+      candidates: z.array(ChefContextCandidateSchema).max(10),
+      too_large: z.boolean(),
+    }).safeParse(data);
+    if (error || !result.success) throw new Error("CANDIDATE_RETRIEVAL_FAILED: invalid recipe response");
+    if (result.data.too_large) throw new ChefCandidateContextTooLargeError();
+    candidates = result.data.candidates;
+    if (candidates.length !== ids.length || candidates.some((candidate, index) =>
+      candidate.id !== ids[index] || candidate.user_id.toLowerCase() !== userId.toLowerCase()
+    )) throw new Error("OWNER_MISMATCH_DETECTED");
+  }
+  return { candidates, truncated: cursor !== null || skipped, totalCandidateCount, matchedCandidateCount };
 }
 
 export async function buildChefRecipeContext(
@@ -401,12 +450,12 @@ export async function buildChefRecipeContext(
   const parsedOptions = ChefRecipeContextOptionsSchema.parse(options ?? {});
   const normalizedPantry = normalizePantryItems(parsedInput.pantryItems);
 
-  const { candidates, truncated } = await retrieveCandidateRecipes(
+  const { candidates, truncated, totalCandidateCount, matchedCandidateCount } = await retrieveCandidateRecipes(
     auth,
     parsedOptions.maxCandidates,
+    normalizedPantry,
+    parsedOptions.topK,
   );
-
-  const totalCandidateCount = candidates.length;
 
   if (totalCandidateCount === 0) {
     return ChefRecipeContextResultSchema.parse({
@@ -432,13 +481,13 @@ export async function buildChefRecipeContext(
     });
   }
 
-  const { ranked, matchedCount } = rankCandidateRecipes(
+  const { ranked } = rankCandidateRecipes(
     candidates,
     normalizedPantry,
     parsedOptions.topK,
   );
 
-  if (matchedCount === 0) {
+  if (matchedCandidateCount === 0) {
     return ChefRecipeContextResultSchema.parse({
       status: "NO_PANTRY_OVERLAP",
       pantryItems: normalizedPantry,
@@ -456,7 +505,7 @@ export async function buildChefRecipeContext(
     preferences: parsedInput.preferences,
     recipes: ranked,
     totalCandidateCount,
-    matchedCandidateCount: matchedCount,
+    matchedCandidateCount,
     truncated,
   });
 }

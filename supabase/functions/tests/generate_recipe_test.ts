@@ -201,7 +201,8 @@ function createFetchMock(
       );
     }
 
-    if (url.pathname === "/rest/v1/rpc/get_chef_recipe_context_candidates") {
+    if (url.pathname === "/rest/v1/rpc/get_chef_recipe_context_candidates" ||
+      url.pathname === "/rest/v1/rpc/get_chef_recipe_context_candidate_page") {
       let reqBody: Record<string, unknown> = {};
       try {
         if (typeof init?.body === "string") reqBody = JSON.parse(init.body);
@@ -213,10 +214,14 @@ function createFetchMock(
         : 1000;
       const candidates = recipes.slice(0, limit);
       return Promise.resolve(
-        new Response(JSON.stringify({
-          candidates,
+        new Response(JSON.stringify(url.pathname.endsWith("candidate_page") ? {
+          candidates: candidates.map(candidate => ({ ...candidate, instructions: [], context_bytes: JSON.stringify(candidate).length })),
           candidate_count: candidates.length,
-          truncated: recipes.length > candidates.length,
+          skipped_count: 0,
+          truncated: false,
+          next_cursor: null,
+        } : {
+          candidates: candidates.filter(candidate => Array.isArray(reqBody.p_recipe_ids) && reqBody.p_recipe_ids.includes(candidate.id)),
           too_large: false,
         }), {
           status: 200,
@@ -547,6 +552,7 @@ function assertNoRecipeOrLineageAccess(requests: RecordedRequest[]): void {
     (request) =>
       request.path.startsWith("/rest/v1/recipes") ||
       request.path.startsWith("/rest/v1/rpc/get_chef_recipe_context_candidates") ||
+      request.path.startsWith("/rest/v1/rpc/get_chef_recipe_context_candidate_page") ||
       request.path.startsWith("/rest/v1/recipe_lineage"),
   );
   assertEquals(touched, []);

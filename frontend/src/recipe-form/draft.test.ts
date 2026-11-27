@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
 import { editorState, findOriginalIngredientIndex, moveRow, recipeDraftSchema, recipeEditorStateSchema, validateEditor } from './draft'
 import { recipeFormFixture } from './testing/fixtures'
+import { instructionValidationCases } from '../../../fixtures/instruction-validation.ts'
 
 it('keeps the revised ingredient identity through duplicate names, reordering and draft storage', () => {
   const state = editorState({ ...recipeFormFixture, ingredients: [
@@ -79,7 +80,7 @@ it('keeps stable row identities and regenerates contiguous step numbers after ed
 
 it('honors the recipe API text and collection limits', () => {
   expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, ingredients: [], instructions: [], notes: '' }).success).toBe(true)
-  expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, instructions: [{ step: 1, text: '' }] }).success).toBe(true)
+  expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, instructions: [{ step: 1, text: '' }] }).success).toBe(false)
   expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, title: 'a'.repeat(200), notes: 'n'.repeat(20000) }).success).toBe(true)
   expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, ingredients: Array(101).fill(recipeFormFixture.ingredients[0]) }).success).toBe(false)
   expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, instructions: Array(101).fill(recipeFormFixture.instructions[0]) }).success).toBe(false)
@@ -127,4 +128,12 @@ it('accepts a description-only ingredient and rejects malformed custom units', (
     expect(invalid.success).toBe(false)
     if (!invalid.success) expect(invalid.error.issues[0].path).toEqual(['ingredients', 0, 'unit'])
   }
+})
+
+it.each(instructionValidationCases)('matches the recipe API instruction contract for $label text', ({ text, accepted }) => {
+  const state = editorState(recipeFormFixture)
+  state.instructions[0].text = text
+  const result = validateEditor(state)
+  expect(result.success).toBe(accepted)
+  if (!result.success) expect(result.error.issues[0].path).toEqual(['instructions', 0, 'text'])
 })

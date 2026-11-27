@@ -1,3 +1,4 @@
+import { instructionValidationCases } from "../../../fixtures/instruction-validation.ts";
 import { assertEquals, assertThrows } from "jsr:@std/assert@1";
 import {
   CreateRecipeRequestSchema,
@@ -279,4 +280,19 @@ Deno.test("GeneratedRecipeSchema normalizes matching substitution and ingredient
   });
   assertEquals(result.recipe.ingredients[0].name, "soy sauce");
   assertEquals(result.substitutions[0].original, "soy sauce");
+});
+
+Deno.test("Recipe create and update agree with editor instruction validation cases", () => {
+  for (const { label, text, accepted } of instructionValidationCases) {
+    const instructions = [{ step: 1, text }];
+    for (const result of [
+      CreateRecipeRequestSchema.safeParse({ title: "Rice", ingredients: [], instructions }),
+      UpdateRecipeRequestSchema.safeParse({ instructions }),
+    ]) {
+      assertEquals(result.success, accepted, label);
+      if (!result.success) {
+        assertEquals(result.error.issues[0].path, ["instructions", 0, "text"], label);
+      }
+    }
+  }
 });
