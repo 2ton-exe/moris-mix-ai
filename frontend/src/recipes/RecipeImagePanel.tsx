@@ -1,3 +1,4 @@
+import { Camera, ImagePlus, RefreshCw, ShieldCheck } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
 import { RecipeScrapArtwork } from './RecipeScrapArtwork'
@@ -18,6 +19,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
   const { user } = useAuth()
   const featureEnabled = import.meta.env.VITE_RECIPE_IMAGES === 'true'
   const id = useId()
+  const fileInput = useRef<HTMLInputElement>(null)
   const [download, setDownload] = useState<(Download & { userId: string }) | null>(null)
   const [loading, setLoading] = useState(true)
   const [downloadError, setDownloadError] = useState(false)
@@ -304,22 +306,36 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     {loading && (allowUpload || showEmpty) && <p role="status">Loading current recipe image…</p>}
     {preparing && <p role="status">Preparing image…</p>}
     {uploading && <p role="status">{bytesUploaded ? 'Attaching image…' : 'Uploading image…'}</p>}
-    <section className={`recipe-image-panel${framed ? ' recipe-image-panel--framed' : ''}`} aria-label={allowUpload || showEmpty ? undefined : `Recipe photo for ${recipeTitle}`} aria-labelledby={allowUpload || showEmpty ? `${id}-heading` : undefined} aria-busy={loading || preparing || uploading}>
+    <section className={`recipe-image-panel${framed ? ' recipe-image-panel--framed' : ''}${allowUpload ? ' recipe-image-panel--upload' : ''}`} aria-label={allowUpload || showEmpty ? undefined : `Recipe photo for ${recipeTitle}`} aria-labelledby={allowUpload || showEmpty ? `${id}-heading` : undefined} aria-busy={loading || preparing || uploading}>
     {(allowUpload || showEmpty) && <h2 id={`${id}-heading`} tabIndex={-1}>Recipe image</h2>}
-    {loading && !currentDownload && !framed && <div className="recipe-image mm-skeleton-block mm-loading-photo" aria-hidden="true" />}
+    {allowUpload && <div className="recipe-image-visuals">
+      {currentDownload && <figure className="recipe-image-frame">
+        <img className="recipe-image" src={currentDownload.url} alt={`${recipeTitle} photo`} onError={handleImageError} />
+        {previewUrl && <figcaption>Current photo</figcaption>}
+      </figure>}
+      {previewUrl && <figure className="recipe-image-frame"><img className="recipe-image" src={previewUrl} alt="Selected recipe image preview" /><figcaption>Selected photo</figcaption></figure>}
+      {!currentDownload && !previewUrl && <div className={`recipe-image-empty${loading || preparing ? ' mm-skeleton-block' : ''}`} role="img" aria-label="Empty recipe photo frame"><Camera aria-hidden="true" /><span>Add a photo</span></div>}
+    </div>}
+    {loading && !currentDownload && !framed && !allowUpload && <div className="recipe-image mm-skeleton-block mm-loading-photo" aria-hidden="true" />}
     {framed ? <RecipeScrapArtwork title={recipeTitle} cookedAt={cookedAt} size="detail" loading={loading && !currentDownload}
       image={currentDownload && !downloadError ? <img className="recipe-image" src={currentDownload.url} alt={`${recipeTitle} photo`} onError={handleImageError} /> : undefined} />
-      : currentDownload && <img className="recipe-image" src={currentDownload.url} alt={`${recipeTitle} photo`} onError={handleImageError} />}
-    {previewUrl && <img className="recipe-image" src={previewUrl} alt="Selected recipe image preview" />}
-    {!loading && !currentDownload && !downloadError && (allowUpload || showEmpty) && <p role="status">No recipe photo has been added yet.</p>}
-    {allowUpload && currentDownload && !downloadError && <p className="mm-edit-photo__attached">Attached privately</p>}
+      : !allowUpload && currentDownload && <img className="recipe-image" src={currentDownload.url} alt={`${recipeTitle} photo`} onError={handleImageError} />}
+    {!loading && !currentDownload && !previewUrl && !preparing && !downloadError && showEmpty && !allowUpload && <p role="status">No recipe photo has been added yet.</p>}
     {downloadError && <div className="recipe-image-error">
       <p aria-live="polite">Could not load this recipe image.</p>
       <button type="button" className="button button-secondary" onClick={() => { refreshAttempted.current = false; void loadImage(undefined, true, true) }}>Refresh photo</button>
     </div>}
     {allowUpload && <div className="recipe-image-controls">
-      <label htmlFor={`${id}-file`}>Choose recipe image</label>
+      {!loading && !currentDownload && !previewUrl && !preparing && !downloadError && <p role="status">No recipe photo has been added yet.</p>}
+      {currentDownload && !downloadError && <p className="mm-edit-photo__attached"><ShieldCheck aria-hidden="true" />Attached privately</p>}
+      {previewUrl && <p role="status">{attached ? 'Photo attached; refreshing the saved image.' : 'Selected photo — upload to attach privately.'}</p>}
+      <button type="button" className="button button-secondary" disabled={preparing || uploading} onClick={() => fileInput.current?.click()}>
+        {currentDownload ? <RefreshCw aria-hidden="true" /> : <ImagePlus aria-hidden="true" />}{previewUrl ? 'Choose another photo' : currentDownload ? 'Replace photo' : 'Choose a photo'}
+      </button>
+      <label className="recipe-image-file-label" htmlFor={`${id}-file`}>Choose recipe image</label>
       <input
+        ref={fileInput}
+        className="recipe-image-file-input"
         id={`${id}-file`}
         type="file"
         accept="image/jpeg,image/png,image/webp"
@@ -330,6 +346,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
           void chooseImage(file)
         }}
       />
+      <p className="recipe-image-help">JPG, PNG or WebP. Resized on this device, then stored privately after upload.</p>
       {selectionError && <p role="alert">{selectionError}</p>}
       {uploadError && <p role="alert">{uploadError}</p>}
       {uploadSuccess && <p role="status">Recipe image saved.</p>}

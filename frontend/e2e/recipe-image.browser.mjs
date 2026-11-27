@@ -154,7 +154,7 @@ try {
         }
         await imagePanel.scrollIntoViewIfNeeded()
         await expect(imagePanel.getByRole('img', { name: 'Ginger rice photo' })).toBeVisible()
-        await expect(imagePanel.getByLabel('Choose recipe image')).toBeVisible()
+        await expect(imagePanel.getByRole('button', { name: 'Replace photo' })).toBeVisible()
         if (width >= 1100) {
           await mkdir(path.join(root, 'test-results'), { recursive: true })
           await page.screenshot({ path: path.join(root, 'test-results', `recipe-edit-${browserName}-${width}.png`) })
@@ -223,6 +223,27 @@ try {
         await expect(identity.getByRole('img', { name: /Illustrated placeholder for Ginger rice/ })).toBeVisible()
         await expect(identity.getByRole('img', { name: 'Ginger rice photo' })).toHaveCount(0)
         if (width >= 1100) await page.screenshot({ path: path.join(root, 'test-results', `recipe-image-unavailable-${browserName}-${width}.png`), animations: 'disabled' })
+        await page.goto(`${appOrigin}/app/recipes/${recipeId}/edit`)
+        await imagePanel.scrollIntoViewIfNeeded()
+        await expect(imagePanel.getByRole('img', { name: 'Empty recipe photo frame' })).toBeVisible()
+        await expect(imagePanel.getByRole('button', { name: 'Choose a photo' })).toBeVisible()
+        if (width >= 1100) {
+          await expect(imagePanel.getByRole('heading', { name: 'Recipe image' })).toHaveCSS('font-size', '12px')
+          const emptyBox = await imagePanel.getByRole('img', { name: 'Empty recipe photo frame' }).boundingBox()
+          const chooseBox = await imagePanel.getByRole('button', { name: 'Choose a photo' }).boundingBox()
+          await page.screenshot({ path: path.join(root, 'test-results', `recipe-image-empty-${browserName}-${width}.png`), animations: 'disabled' })
+          assert.ok(emptyBox && chooseBox && emptyBox.width >= 60 && emptyBox.width <= 125 && chooseBox.x >= emptyBox.x + emptyBox.width, `Empty photo frame and chooser must share a compact desktop row: ${JSON.stringify({ emptyBox, chooseBox })}`)
+        }
+        const [firstPhotoChooser] = await Promise.all([page.waitForEvent('filechooser'), imagePanel.getByRole('button', { name: 'Choose a photo' }).click()])
+        await firstPhotoChooser.setFiles({ name: 'first-photo.png', mimeType: 'image/png', buffer: image })
+        await expect(imagePanel.getByText('Selected photo — upload to attach privately.')).toBeVisible()
+        await expect(imagePanel.getByText('No recipe photo has been added yet.')).toHaveCount(0)
+        if (width >= 1100) {
+          const previewBox = await imagePanel.getByRole('img', { name: 'Selected recipe image preview' }).boundingBox()
+          const controlsBox = await imagePanel.locator('.recipe-image-controls').boundingBox()
+          assert.ok(previewBox && controlsBox && previewBox.width <= 125 && controlsBox.x >= previewBox.x + previewBox.width, 'Selected photo must keep the compact frame beside its controls')
+          await page.screenshot({ path: path.join(root, 'test-results', `recipe-image-selected-${browserName}-${width}.png`), animations: 'disabled' })
+        }
         await page.goto(`${appOrigin}/demo-recipe`)
         await expect(page.getByRole('heading', { name: demoFixture.recipe.title })).toBeVisible()
         const pages = page.getByRole('navigation', { name: 'Recipe reading pages', exact: true })
