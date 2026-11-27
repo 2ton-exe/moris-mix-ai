@@ -21,7 +21,7 @@ for (const [name, input, expected, count = 1] of [
   ['GitHub markdown', 'M\0.github/production-cutover.md\0', false],
   ['CODEOWNERS policy change requires full CI', 'M\0.github/CODEOWNERS\0', false],
   ['script', 'M\0scripts/pr-secretary.mjs\0', false],
-  ['classifier self-change requires full validation', 'M\0scripts/ci-path-classifier.mjs\0', false],
+  ['classifier test change requires full CI','M\0scripts/ci-path-classifier.test.mjs\0', false],
   ['lockfile', 'M\0pnpm-lock.yaml\0', false],
   ['mixed', 'M\0docs/example.md\0M\0frontend/src/App.tsx\0', false, 2],
   ['unknown root', 'M\0CONTRIBUTING.md\0', false],

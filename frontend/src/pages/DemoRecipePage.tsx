@@ -57,7 +57,7 @@ export default function DemoRecipePage() {
       {request.status === 'success' && <RecipeReading recipe={request.recipe} publicDemo
         back={<><Link to="/home"><span aria-hidden="true">←</span> Back home</Link><span className="mm-demo-label">Sample recipe</span></>}
         actions={<>
-          <Link className="button button-primary" to="/signup">Start a private journal</Link>
+          <Link className="button button-primary" to="/signup">Create your recipe journal</Link>
           {desktop && <Link className="button button-secondary" to="/demo-recipe/try-a-revision">Try a Chicken Adobo revision</Link>}
         </>}
       />}
