@@ -439,6 +439,8 @@ try {
     await settleJournalLayout(page)
     await unit.fill('')
     await description.focus()
+    const amountBounds = await Promise.all([page.getByLabel('Ingredient 1 quantity'), unit, description].map((input) => input.boundingBox()))
+    assert.ok(Math.max(...amountBounds.map((box) => box.y)) - Math.min(...amountBounds.map((box) => box.y)) <= 1, 'Edit amount inputs align on desktop')
     const before = await unit.boundingBox()
     const scrollBefore = await page.evaluate(() => [globalThis.scrollX, globalThis.scrollY, globalThis.document.documentElement.scrollHeight])
     await unit.focus()
