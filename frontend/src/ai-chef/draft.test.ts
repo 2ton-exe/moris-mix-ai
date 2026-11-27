@@ -30,6 +30,24 @@ const handoff: ChefReviewHandoff = {
 }
 
 describe('account-scoped AI Chef session drafts', () => {
+  it('deduplicates restored pantry aliases without changing the saved recipe recovery', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('moris-mix:ai-chef:v1:chef-aliases', JSON.stringify({
+      input: { pantryItems: [' Green   onions ', 'scallions', 'tomatoes', 'tomato', 'cherry tomatoes'], pantryInput: 'garlic', preferences: 'quick' },
+      handoff,
+    }))
+    const restored = readChefDraftResult('chef-aliases', storage)
+    expect(restored).toEqual({
+      status: 'available',
+      draft: {
+        input: { pantryItems: ['Green onions', 'tomatoes', 'cherry tomatoes'], pantryInput: 'garlic', preferences: 'quick' },
+        handoff,
+      },
+    })
+    expect(writeChefDraft('chef-aliases', restored.draft, storage)).toEqual({ persisted: true })
+    expect(readChefDraftResult('chef-aliases', storage)).toEqual(restored)
+  })
+
   it('round-trips pantry input and a validated unsaved generation handoff', () => {
     const storage = new MemoryStorage()
     const draft = { input: { pantryItems: ['rice'], pantryInput: '', preferences: 'quick' }, handoff }

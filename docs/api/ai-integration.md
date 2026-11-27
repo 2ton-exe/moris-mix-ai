@@ -224,6 +224,17 @@ POST, OPTIONS`). Any other method → `405 METHOD_NOT_ALLOWED`.
 | `pantryItems` | string[] | Required, **1–100** items, each non-empty after trimming and **≤ 100 characters** |
 | `preferences` | string | Optional, trimmed, **≤ 1,000 characters** |
 
+Pantry membership uses a shared deterministic identity: capitalization and whitespace
+are normalized, known plural food nouns are singularized, and curated aliases
+(for example, scallions/green onions and aubergine/eggplant) are matched. The first
+label is retained for display and the request; identity never replaces that label.
+Variety, cut, form, and preparation qualifiers remain significant (for example,
+chicken breast, ground chicken, and cooked chicken stay separate). Unknown names
+are not stemmed or fuzzily matched. Manual, pasted, quick-add, and restored pantry
+lists use the same identity. Both request boundaries deduplicate before retrieval
+or generation, without an additional AI call. Existing item/character limits are
+validated before deduplication.
+
 The whole request body must be **≤ 128 KiB**. The endpoint streams and enforces this cap, accepts an omitted content type for compatibility, rejects an explicit non-JSON content type, and returns `X-Request-ID`. Unknown fields are ignored. Pantry items
 are normalized (trimmed, de-duplicated, lowercased) by BE-10 before retrieval and the
 prompt. An empty pantry is a `400 VALIDATION_ERROR`: a cold start means **no saved

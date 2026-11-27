@@ -15,6 +15,25 @@ import {
   MOCK_MALFORMED_RECIPE,
 } from "../_shared/ai/mocks.ts";
 
+Deno.test("generation deduplicates pantry identities before entering the pipeline", () => {
+  const request = GenerateRecipeRequestSchema.parse({
+    pantryItems: [
+      " Green   onions ",
+      "scallions",
+      "EGGS",
+      "egg",
+      "chicken breast",
+      "chicken thigh",
+    ],
+  });
+  assertEquals(request.pantryItems, [
+    "Green onions",
+    "EGGS",
+    "chicken breast",
+    "chicken thigh",
+  ]);
+});
+
 Deno.test("ExtractedRecipeSchema validates correct mock", () => {
   const result = ExtractedRecipeSchema.parse(MOCK_EXTRACTED_RECIPE);
   assertEquals(result.title, "Garlic Soy Chicken");

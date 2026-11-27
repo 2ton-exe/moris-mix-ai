@@ -32,6 +32,16 @@ const generated = {
 const request: RecipeRequest = { userId: 'chef-user', signal: new AbortController().signal }
 
 describe('AI Chef request and response contract', () => {
+  it('normalizes ingredient membership before building the generation payload', async () => {
+    const postAuthenticatedJson = vi.fn().mockResolvedValue(generated)
+    await createGenerateRecipeApi({ postAuthenticatedJson }).generate(
+      [' Green   onions ', 'scallions', 'EGGS', 'egg', 'chicken breast', 'chicken thigh'], '', request,
+    )
+    expect(postAuthenticatedJson).toHaveBeenCalledWith(GENERATE_RECIPE_PATH, {
+      pantryItems: ['Green onions', 'EGGS', 'chicken breast', 'chicken thigh'],
+    }, request)
+  })
+
   it('mirrors backend pantry and preference limits and normalizes whitespace', () => {
     const parsed = generateRecipeRequestSchema.safeParse({ pantryItems: [' rice ', 'eggs'], preferences: ' quick, no frying ' })
     expect(parsed.success && parsed.data).toEqual({ pantryItems: ['rice', 'eggs'], preferences: 'quick, no frying' })

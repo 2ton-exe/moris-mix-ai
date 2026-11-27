@@ -1,4 +1,5 @@
 import { z } from "npm:zod@4.6.6";
+import { uniquePantryIngredients } from "../ingredient-identity.ts";
 import {
   isValidIngredientUnit,
   normalizeIngredientUnit,
@@ -537,7 +538,8 @@ export type ChefRecipeContextResult = z.infer<
  * Limits mirror BE-10's context input so retrieval and validation agree.
  */
 export const GenerateRecipeRequestSchema = z.object({
-  pantryItems: z.array(z.string().trim().min(1).max(100)).min(1).max(100),
+  pantryItems: z.array(z.string().trim().min(1).max(100)).min(1).max(100)
+    .transform(uniquePantryIngredients),
   preferences: z.string().trim().max(1000).optional(),
 });
 

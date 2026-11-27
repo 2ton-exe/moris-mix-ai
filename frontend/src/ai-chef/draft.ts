@@ -1,11 +1,12 @@
 import { z } from 'zod'
+import { uniquePantryIngredients } from '../../../supabase/functions/_shared/ingredient-identity.ts'
 import { recipeEditorStateSchema } from '../recipe-form/draft'
 import type { RecipeEditorState } from '../recipe-form/draft'
 import { generateRecipeRequestSchema, storedGenerateRecipeResponseSchema } from './generateRecipe'
 import type { GenerateRecipeRequest, GenerateRecipeResponse } from './generateRecipe'
 
 const pantryInputSchema = z.object({
-  pantryItems: z.array(z.string()),
+  pantryItems: z.array(z.string()).transform(uniquePantryIngredients),
   pantryInput: z.string(),
   preferences: z.string(),
 })

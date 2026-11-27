@@ -323,6 +323,18 @@ try {
   assert.equal(new Set(cardBoxes.map(({ left }) => left)).size, 3)
   assert.equal(new Set(cardBoxes.map(({ top }) => top)).size, 4)
   assert.ok(await page.evaluate(() => globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 1), 'The pantry must fit the viewport')
+  const pantryLayout = await page.evaluate(() => {
+    const bounds = (selector) => globalThis.document.querySelector(selector).getBoundingClientRect()
+    return {
+      progressTop: bounds('.mm-ai-chef__mixing-sticker').top,
+      headingTop: bounds('.mm-ai-chef__heading').top,
+      boardBottom: bounds('.mm-ai-chef__pantry-list:not(.mm-ai-chef__measure)').bottom,
+      footerTop: bounds('.mm-journal-page-footer').top,
+    }
+  })
+  assert.ok(Math.abs(pantryLayout.progressTop - pantryLayout.headingTop) <= 32, 'Progress and ingredient entry begin together across the spread')
+  assert.ok(pantryLayout.footerTop - pantryLayout.boardBottom <= 24, 'The pantry board uses the available height above the anchored action')
+
   await page.screenshot({ path: path.join(os.tmpdir(), 'moris-pantry-board-1440.png'), animations: 'disabled' })
   await page.setViewportSize({ width: 1586, height: 992 })
   await settleJournalLayout(page)
@@ -383,8 +395,32 @@ try {
   await expect(longCard).toBeVisible()
   await expect(longCard.locator('img')).toHaveAttribute('src', '/twemoji/svg/1f37d.svg')
   assert.ok(await longCard.evaluate((card) => card.scrollWidth <= card.clientWidth))
+  await pantryInput.fill('  VINEGAR  ')
+  await pantryInput.press('Enter')
+  const expandedBoard = page.getByRole('region', { name: 'Pantry list, 13 items' })
+  const duplicateCard = expandedBoard.getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Remove Vinegar', exact: true }) })
+  await expect(duplicateCard).toHaveAttribute('data-duplicate', 'true')
+  await expect(pantryInput).toBeFocused()
+  await expect(expandedBoard).toHaveAccessibleName('Pantry list, 13 items')
+  await nextIngredients.click()
+  await expect(longCard).toBeVisible()
   await longCard.getByRole('button').click()
   await expect(page.getByRole('navigation', { name: 'Pantry board pages' })).toHaveCount(0)
+  await expect(firstCards).toHaveCount(12)
+
+  await sort.selectOption('ascending')
+  const longBulkItems = ['A', 'B', 'C'].map((letter) => letter.repeat(96) + ' oil')
+  await pantryInput.fill([...longBulkItems, 'OLIVE OIL'].join(', '))
+  await pantryInput.press('Enter')
+  const mixedBoard = page.getByRole('region', { name: 'Pantry list, 15 items' })
+  await expect(mixedBoard.getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Remove Olive Oil', exact: true }) })).toHaveAttribute('data-duplicate', 'true')
+  await expect(pantryInput).toBeFocused()
+  const previousIngredients = page.getByRole('button', { name: 'Previous ingredients' })
+  await previousIngredients.click()
+  await expect(pantryInput).not.toBeFocused()
+  while (await previousIngredients.isEnabled()) await previousIngredients.click()
+  for (const name of longBulkItems) await page.getByRole('button', { name: 'Remove ' + name, exact: true }).click()
+  await sort.selectOption('added')
   await expect(firstCards).toHaveCount(12)
 
   await page.emulateMedia({ reducedMotion: 'no-preference' })

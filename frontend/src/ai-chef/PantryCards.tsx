@@ -12,9 +12,10 @@ interface PantryCardsProps {
   onRemove?: (id: number) => void
   disabled?: boolean
   animate?: boolean
+  duplicateIds?: number[]
 }
 
-export function PantryCards({ items, onRemove, disabled, animate }: PantryCardsProps) {
+export function PantryCards({ items, onRemove, disabled, animate, duplicateIds = [] }: PantryCardsProps) {
   const listRef = useRef<HTMLUListElement>(null)
   const previousPositions = useRef<Map<string, DOMRect> | null>(null)
 
@@ -63,10 +64,10 @@ export function PantryCards({ items, onRemove, disabled, animate }: PantryCardsP
 
   return <ul className="mm-ai-chef__card-grid" ref={listRef} role="list">
     {items.map(({ id, name }) => {
-      return <li key={id} data-tone={id % 6} data-long-name={name.length > 48 ? 'extended' : name.length > 30 ? 'compact' : undefined} data-pantry-ingredient={onRemove ? id : undefined}>
+      return <li key={id} data-duplicate={duplicateIds.includes(id) || undefined} data-tone={id % 6} data-long-name={name.length > 48 ? 'extended' : name.length > 30 ? 'compact' : undefined} data-pantry-ingredient={onRemove ? id : undefined}>
         {!onRemove ? <span className="recipe-ingredient-emoji" />
           : <IngredientEmoji name={name} />}
-        <span className="mm-ai-chef__ingredient-name">{name}</span>
+        <span className="mm-ai-chef__ingredient-name">{name}{duplicateIds.includes(id) && <span className="visually-hidden"> · Already in your pantry</span>}</span>
         <button className="mm-ai-chef__remove" type="button" disabled={disabled} aria-label={`Remove ${name}`} onClick={(event) => remove(id, event)}>
           <span><span className="mm-ai-chef__remove-mark" aria-hidden="true">× </span>Remove</span>
         </button>

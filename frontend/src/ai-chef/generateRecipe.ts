@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { uniquePantryIngredients } from '../../../supabase/functions/_shared/ingredient-identity.ts'
 import { apiClient } from '../api/config'
 import { aiRateLimitReason } from '../api/aiRateLimit'
 import { HttpError, httpErrorCode } from '../api/http'
@@ -8,7 +9,7 @@ import type { RecipeRequest } from '../recipes/types'
 
 /** Mirrors GenerateRecipeRequestSchema from supabase/functions/_shared/ai/schemas.ts. */
 export const generateRecipeRequestSchema = z.object({
-  pantryItems: z.array(z.string().trim().min(1).max(100)).min(1).max(100),
+  pantryItems: z.array(z.string().trim().min(1).max(100)).min(1).max(100).transform(uniquePantryIngredients),
   preferences: z.string().trim().max(1000).optional(),
 })
 

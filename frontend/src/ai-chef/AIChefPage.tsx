@@ -1,3 +1,4 @@
+import { normalizePantryIngredient } from '../../../supabase/functions/_shared/ingredient-identity.ts'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
@@ -56,7 +57,7 @@ function AIChefSession({ userId }: { userId: string }) {
   const { isTurning, requestPageTurn } = useJournalPageTurn()
   const [initialRead] = useState(() => readChefDraftResult(userId))
   const [pantryEntries, setPantryEntries] = useState(() =>
-    initialRead.draft.input.pantryItems.map((name, id) => ({ id, name })))
+    initialRead.draft.input.pantryItems.map((name, id) => ({ id, name, identity: normalizePantryIngredient(name).identity })))
   const nextIngredientId = useRef(pantryEntries.length)
   const [sort, setSort] = useState<PantrySort>('added')
   const [view, setView] = useState<'grid' | 'list'>('grid')
@@ -76,6 +77,8 @@ function AIChefSession({ userId }: { userId: string }) {
   const retryBlocked = retryAt > now
   const [entryError, setEntryError] = useState<string | null>(null)
   const [entryStatus, setEntryStatus] = useState('')
+  const [duplicateFeedback, setDuplicateFeedback] = useState<{ identities: string[]; message: string } | null>(null)
+  const revealedDuplicate = useRef<{ feedback: typeof duplicateFeedback; ends: string } | null>(null)
   const [storageIssue, setStorageIssue] = useState<string | null>(initialRead.status === 'available' ? null : initialRead.status)
   const [discardOpen, setDiscardOpen] = useState(false)
   const [guidedPantry, setGuidedPantry] = useState(false)
@@ -108,7 +111,7 @@ function AIChefSession({ userId }: { userId: string }) {
     ? { kind: requestErrorForPantry || entryError ? 'attention' : 'confused', message: requestError ?? entryError ?? 'Check your pantry ingredients.' }
     : pending
       ? { kind: 'thinking', message: 'Thinking of something delicious for your pantry…' }
-      : null)
+      : duplicateFeedback ? { kind: 'curious', message: duplicateFeedback.message } : null)
   useMoriGuidance(pending ? null : handoff
     ? { message: 'Your recipe idea is waiting in review.', action: { label: 'Return to review', onClick: () => navigate('/app/chef/review') } }
     : { message: 'Tell me what you have, and I’ll make an idea for you to review.', action: { label: 'Add ingredients', onClick: () => {
@@ -117,6 +120,24 @@ function AIChefSession({ userId }: { userId: string }) {
     } } })
 
   useEffect(() => () => controller.current?.abort(), [])
+
+  useEffect(() => {
+    if (!duplicateFeedback) return
+    const timer = window.setTimeout(() => setDuplicateFeedback(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [duplicateFeedback])
+
+  useLayoutEffect(() => {
+    if (!board || !duplicateFeedback) return
+    const ends = measuredEnds.join(',')
+    if (revealedDuplicate.current?.feedback === duplicateFeedback && revealedDuplicate.current.ends === ends) return
+    const index = orderedEntries.findIndex(({ identity }) => duplicateFeedback.identities.includes(identity))
+    const target = measuredEnds.findIndex((end) => index < end)
+    if (index >= 0 && target >= 0) {
+      revealedDuplicate.current = { feedback: duplicateFeedback, ends }
+      setBoardPage(target)
+    }
+  }, [board, duplicateFeedback, orderedEntries, measuredEnds])
 
   useLayoutEffect(() => {
     if (moriFocusPantry) {
@@ -219,7 +240,7 @@ function AIChefSession({ userId }: { userId: string }) {
   }
 
   function appendPantryItems(items: string[]) {
-    const added = items.slice(pantryEntries.length).map((name) => ({ id: nextIngredientId.current++, name }))
+    const added = items.slice(pantryEntries.length).map((name) => ({ id: nextIngredientId.current++, name, identity: normalizePantryIngredient(name).identity }))
     if (added.length > 0) setPantryEntries([...pantryEntries, ...added])
   }
 
@@ -232,6 +253,9 @@ function AIChefSession({ userId }: { userId: string }) {
       return
     }
     setEntryError(null)
+    const duplicate = result.items.find((name) => result.duplicateIdentities.includes(normalizePantryIngredient(name).identity))
+    const message = duplicate ? `“${duplicate}” is already here—one spot in the pantry, twice the enthusiasm!` : null
+    setDuplicateFeedback(message ? { identities: result.duplicateIdentities, message } : null)
     setEntryStatus(result.added === 0 && source === 'input'
       ? 'That ingredient is already in your pantry list.'
       : `Added ${result.added} ${result.added === 1 ? 'ingredient' : 'ingredients'}${result.duplicates ? `; skipped ${result.duplicates} duplicate${result.duplicates === 1 ? '' : 's'}` : ''}.`)
@@ -239,9 +263,11 @@ function AIChefSession({ userId }: { userId: string }) {
     const nextInput = source === 'suggestion' ? pantryInput : ''
     setPantryInput(nextInput)
     persistInput({ pantryItems: result.items, pantryInput: nextInput, preferences })
+    pantryInputRef.current?.focus({ preventScroll: true })
   }
 
   function removeIngredient(id: number) {
+    setDuplicateFeedback(null)
     const nextEntries = pantryEntries.filter((entry) => entry.id !== id)
     const active = previewLeaf ?? chefLeaf
     if (active.kind === 'pantry' && active.id === id) {
@@ -392,7 +418,7 @@ function AIChefSession({ userId }: { userId: string }) {
     </header>}
     {pantryItems.length === 0
       ? <p className="mm-ai-chef__empty"><strong>No ingredients yet.</strong><span>Add a few above to get your recipe started.</span></p>
-      : <PantryCards key={board ? activeBoardPage : page} items={pantryPageItems} onRemove={removeIngredient} disabled={pending || isTurning} animate={cards} />}
+      : <PantryCards key={board ? activeBoardPage : page} items={pantryPageItems} onRemove={removeIngredient} disabled={pending || isTurning} animate={cards} duplicateIds={pantryEntries.filter(({ identity }) => duplicateFeedback?.identities.includes(identity)).map(({ id }) => id)} />}
     {board && <nav className="mm-ai-chef__board-pages" aria-label="Pantry board pages"
       data-measure-only={measuredEnds.length === 1 || undefined} inert={measuredEnds.length === 1} aria-hidden={measuredEnds.length === 1 || undefined}>
       <button type="button" aria-label="Previous ingredients" aria-disabled={activeBoardPage === 0} onClick={() => {
@@ -475,7 +501,7 @@ function AIChefSession({ userId }: { userId: string }) {
             placeholder="e.g. rice, eggs, tomatoes"
             onChange={(event) => updatePantryInput(event.currentTarget.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                 event.preventDefault()
                 addIngredients(pantryInput, 'input')
               }
@@ -492,8 +518,8 @@ function AIChefSession({ userId }: { userId: string }) {
         {board && <div className="mm-ai-chef__try">
           <span>Try adding:</span>
           {pantrySuggestions.map((name) => <button key={name} type="button"
-            disabled={pantryItems.length >= MAX_PANTRY_ITEMS || pantryItems.some((item) => item.trim().toLowerCase() === name)}
-            onClick={() => { addIngredients(name, 'suggestion'); pantryInputRef.current?.focus() }}>
+            disabled={pantryItems.length >= MAX_PANTRY_ITEMS || pantryEntries.some(({ identity }) => identity === normalizePantryIngredient(name).identity)}
+            onClick={() => addIngredients(name, 'suggestion')}>
             <IngredientEmoji name={name} />{name}
           </button>)}
         </div>}
