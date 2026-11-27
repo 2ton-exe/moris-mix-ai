@@ -85,6 +85,34 @@ it('removes cached numerical claims when refreshing usage fails', async () => {
   expect(button.closest('[data-state]')?.getAttribute('data-state')).toBe('unavailable')
 })
 
+it.each(['mouseEnter', 'focus', 'click'] as const)('recovers from unavailable usage when details reopen via %s', async (event) => {
+  vi.mocked(apiClient.getAuthenticatedJson).mockRejectedValue(new Error('unavailable'))
+  renderIndicator()
+  const button = screen.getByRole('button', { name: "Mori's AI usage" })
+  fireEvent[event](button)
+  expect(await screen.findByText('AI usage is temporarily unavailable.')).toBeTruthy()
+  fireEvent.keyDown(button, { key: 'Escape' })
+  fireEvent.blur(button)
+  expect(screen.queryByRole('tooltip')).toBeNull()
+
+  vi.mocked(apiClient.getAuthenticatedJson).mockResolvedValue(usage)
+  fireEvent[event](button)
+  expect(await screen.findByText('7 of 10 left')).toBeTruthy()
+  expect(screen.queryByText('AI usage is temporarily unavailable.')).toBeNull()
+  expect(button.closest('[data-state]')?.getAttribute('data-state')).toBe('normal')
+})
+
+it('refreshes cached usage when details open without reopening chat', async () => {
+  renderIndicator()
+  const button = screen.getByRole('button', { name: "Mori's AI usage" })
+  await waitFor(() => expect(button.closest('[data-state]')?.getAttribute('data-state')).toBe('normal'))
+  expect(apiClient.getAuthenticatedJson).toHaveBeenCalledTimes(1)
+  vi.mocked(apiClient.getAuthenticatedJson).mockResolvedValue({ ...usage, daily: { ...usage.daily, used: 4, remaining: 6 } })
+
+  fireEvent.click(button)
+  expect(await screen.findByText('6 of 10 left')).toBeTruthy()
+})
+
 it('keeps the hover card open while the pointer moves over it', async () => {
   renderIndicator()
   const button = screen.getByRole('button', { name: "Mori's AI usage" })

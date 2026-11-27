@@ -4,6 +4,7 @@ import { useAIUsage } from './useAIUsage'
 
 export function AIUsageIndicator({ userId, active = true }: { userId: string; active?: boolean }) {
   const query = useAIUsage(userId, active)
+  const { refetch } = query
   const usage = query.isError ? undefined : query.data
   const trigger = useRef<HTMLButtonElement>(null)
   const popup = useRef<HTMLDivElement>(null)
@@ -36,6 +37,10 @@ export function AIUsageIndicator({ userId, active = true }: { userId: string; ac
     if (!active) setOpen(false)
     return () => window.clearTimeout(closeTimer.current)
   }, [active])
+
+  useEffect(() => {
+    if (visible) void refetch({ cancelRefetch: false })
+  }, [visible, refetch])
 
   useLayoutEffect(() => {
     if (!visible || !trigger.current || !popup.current) return
