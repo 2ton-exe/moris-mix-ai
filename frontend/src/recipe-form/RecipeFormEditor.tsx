@@ -49,7 +49,7 @@ function resizeTextarea(target: EventTarget | null) {
 
 type InstructionSelection = { rowKey: string; start: number; end: number; direction: 'forward' | 'backward' | 'none' | null }
 
-export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, createSubmitLabel = 'Save recipe', savedAction, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, reviewSaveContext, reviewReceipt, reviewComparison, comparisonIngredient, comparisonIngredientIndex, supplement }: RecipeFormEditorProps) {
+export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, createSubmitLabel = 'Save recipe', savedAction, onEditSavedRecipe, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, reviewSaveContext, reviewReceipt, reviewComparison, comparisonIngredient, comparisonIngredientIndex, supplement }: RecipeFormEditorProps) {
   const prefix = useId()
   const [state, setState] = useState(() => initialEditorState ?? editorState(initialValues ?? emptyRecipeDraft()))
   const [baseline, setBaseline] = useState<string | null>(() => initialSaveConfirmation ? JSON.stringify(state) : initialValuesAreUnsaved ? null : JSON.stringify(state))
@@ -985,10 +985,10 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
 
   const content = showReviewReceipt ? <section className="mm-recipe-review__receipt" aria-label="Saved recipe">
     {reviewReceipt}
-    <button type="button" className="button mm-review-detail-link" onClick={() => {
+    <button type="button" className="button mm-review-detail-link" onClick={onEditSavedRecipe ?? (() => {
       setPageAnchor('identity')
       setEditingFromReceipt(true)
-    }}>Edit saved recipe</button>
+    })}>Edit saved recipe</button>
   </section> : <>
     <div hidden ref={supplementParking} />
     {supplementHost && createPortal(supplement, supplementHost)}

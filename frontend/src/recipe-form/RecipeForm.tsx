@@ -17,6 +17,7 @@ export type RecipeFormProps = {
   saveSuccessMessage?: string
   createSubmitLabel?: string
   savedAction?: ReactNode
+  onEditSavedRecipe?: () => void
   onSubmit?: (draft: RecipeDraft, context: { signal: AbortSignal }) => Promise<RecipeSaveConfirmation>
   onCancel?: () => void
   cancelLabel?: string

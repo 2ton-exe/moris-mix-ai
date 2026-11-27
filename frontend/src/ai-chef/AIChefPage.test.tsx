@@ -20,6 +20,7 @@ import { writeChefDraft } from './draft'
 import { AIChefPage } from './AIChefPage'
 import { ChefRecipeReviewPage } from './ChefRecipeReviewPage'
 import RecipeDetailPage from '../pages/RecipeDetailPage'
+import EditRecipePage from '../pages/EditRecipePage'
 import { defaultRecipeSource, RecipeSourceContext } from '../recipes/source'
 import type { RecipeSource } from '../recipes/types'
 
@@ -78,6 +79,7 @@ function renderChef({ userId = 'chef-cook', save = vi.fn<SaveRecipeDraft>(async 
       { element: <JournalLayout />, children: [{ path: 'chef', element: <AIChefPage /> }, { path: 'recipes/:recipeId', element: <RecipeDetailPage /> }] },
       { path: 'chef/review', element: <ChefRecipeReviewPage save={save} /> },
       { path: 'recipes/new', element: <ManualRecipeRoute /> },
+      { path: 'recipes/:recipeId/edit', element: <EditRecipePage /> },
     ] },
   ], { initialEntries: ['/app/chef'] })
   const view = render(<QueryClientProvider client={queryClient}><AuthContext.Provider value={state}><RecipeSourceContext.Provider value={source}><JournalLogoutGuardContext.Provider value={registerLogoutGuard}><RouterProvider router={router} /></JournalLogoutGuardContext.Provider></RecipeSourceContext.Provider></AuthContext.Provider></QueryClientProvider>)
@@ -277,6 +279,45 @@ describe('AI Chef pantry and review workflow', () => {
     act(() => expect(guard(logout)).toBe(false))
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard Changes' }))
     expect(logout).toHaveBeenCalledOnce()
+  })
+
+  it('edits a recovered saved copy through the versioned editor after retrying its parent links', async () => {
+    const currentMatchMedia = window.matchMedia
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => {
+      const media = currentMatchMedia(query)
+      Object.defineProperty(media, 'matches', { value: media.matches || query.includes('pointer: fine') })
+      return media
+    })
+    writeChefDraft('chef-cook', {
+      input: { pantryItems: ['rice'], pantryInput: '', preferences: '' },
+      handoff: {
+        request: { pantryItems: ['rice'] }, response, selectedParentIds: [response.parents[0].id],
+        savedRecipeId, lineageStatus: 'pending', saved: false,
+      },
+    })
+    const recipe = { ...response.recipe, id: savedRecipeId, notes: 'Added after saving in another tab.',
+      cooked_at: '2026-11-27', updated_at: '2026-11-27T07:00:00Z' }
+    vi.spyOn(lineageApi, 'get').mockResolvedValue({ lineage: [] })
+    vi.spyOn(lineageApi, 'save').mockResolvedValue({ lineage: [{
+      id: '66666666-6666-4666-8666-666666666666', parent_recipe_id: response.parents[0].id,
+      child_recipe_id: savedRecipeId, created_at: '2026-11-27T07:01:00Z',
+    }] })
+    const save = vi.spyOn(recipeFormApi, 'save').mockImplementation(async (draft) => ({
+      id: savedRecipeId, record: { id: savedRecipeId, userId: 'chef-cook', values: draft, updatedAt: recipe.updated_at },
+    }))
+    const view = renderChef({ source: { mode: 'live', list: async () => [recipe], detail: async () => recipe } })
+    await act(() => view.router.navigate('/app/chef/review'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry recipe links' }))
+    await screen.findByText('Recipe and selected parent links saved.')
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit saved recipe' }))
+    await waitFor(() => expect(view.router.state.location.pathname).toBe(`/app/recipes/${savedRecipeId}/edit`))
+    const title = await screen.findByRole('textbox', { name: /^Recipe title$/ })
+    fireEvent.change(title, { target: { value: 'A better next cook' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(save).toHaveBeenCalledOnce())
+    expect(save.mock.calls[0]?.[0]).toMatchObject({ notes: recipe.notes, cooked_at: recipe.cooked_at })
+    expect(save.mock.calls[0]?.[3]).toMatchObject({ id: savedRecipeId, updatedAt: recipe.updated_at,
+      values: { notes: recipe.notes, cooked_at: recipe.cooked_at } })
   })
 
   it('keeps a cooking observation through a conflicting notes edit and asks to review again', async () => {

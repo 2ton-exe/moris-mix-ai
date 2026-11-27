@@ -159,6 +159,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   const { user } = useAuth()
   const [initialRead] = useState(() => readChefDraftResult(userId))
   const stored = initialRead.draft
+  const recoveredRecipeId = stored.handoff?.savedRecipeId
   const reviewRouteState = useRef(location.state)
   const generationSucceeded = useRef(Boolean(stored.handoff) && typeof reviewRouteState.current === 'object' && reviewRouteState.current !== null &&
     'chefGenerationSucceeded' in reviewRouteState.current && reviewRouteState.current.chefGenerationSucceeded === true)
@@ -481,6 +482,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     initialEditorState={reviewDraft ?? undefined}
     initialValuesAreUnsaved={!handoff.savedRecipeId}
     initialSaveConfirmation={handoff.savedRecipeId ? { id: handoff.savedRecipeId, statusMessage: completionMessage } : undefined}
+    onEditSavedRecipe={recoveredRecipeId ? () => navigate('/app/recipes/' + encodeURIComponent(recoveredRecipeId) + '/edit') : undefined}
     saveSuccessMessage={completionMessage}
     createSubmitLabel={revision ? 'Save new version' : undefined}
     savedAction={handoff.savedRecipeId && (revision || desktopComparison) && <Link className="button button-primary"
