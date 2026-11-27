@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { uniquePantryIngredients } from '../../../supabase/functions/_shared/ingredient-identity.ts'
 import { apiClient } from '../api/config'
+import { notifyAIUsageChanged } from '../api/aiUsage'
 import { aiRateLimitReason } from '../api/aiRateLimit'
 import { HttpError, httpErrorCode } from '../api/http'
 import { retryAfterMessage } from '../api/retryAfter'
@@ -107,7 +108,7 @@ export function createGenerateRecipeApi(client: GenerateRecipeClient = apiClient
   return {
     async revise(sourceRecipeId: string, noteExcerpt: string, request: RecipeRequest): Promise<GenerateRecipeResponse> {
       const payload = revisionRequestSchema.parse({ sourceRecipeId, noteExcerpt })
-      const response = await client.postAuthenticatedJson(GENERATE_RECIPE_PATH, payload, request)
+      const response = await client.postAuthenticatedJson(GENERATE_RECIPE_PATH, payload, request).finally(() => notifyAIUsageChanged(request.userId))
       const parsed = generateRecipeResponseSchema.safeParse(response)
       if (!parsed.success || parsed.data.revision?.noteExcerpt !== noteExcerpt || parsed.data.parents.length !== 1 ||
         parsed.data.parents[0].id.toLowerCase() !== sourceRecipeId.toLowerCase()) {
@@ -123,7 +124,7 @@ export function createGenerateRecipeApi(client: GenerateRecipeClient = apiClient
       const validatedRequest = generateRecipeRequestSchema.safeParse(payload)
       if (!validatedRequest.success) throw new InvalidGenerateRecipeRequest()
 
-      const response = await client.postAuthenticatedJson(GENERATE_RECIPE_PATH, validatedRequest.data, request)
+      const response = await client.postAuthenticatedJson(GENERATE_RECIPE_PATH, validatedRequest.data, request).finally(() => notifyAIUsageChanged(request.userId))
       const validatedResponse = generateRecipeResponseSchema.safeParse(response)
       if (!validatedResponse.success) throw new InvalidGeneratedRecipeResponse()
       return validatedResponse.data

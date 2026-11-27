@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { createMemoryRouter, Outlet, RouterProvider, useLocation } from 'react-router'
@@ -496,7 +496,7 @@ describe('Quick AI Entry', () => {
     fireEvent.click(submit)
     fireEvent.click(submit)
 
-    expect(screen.getByRole('status').textContent).toContain('Mori is organizing your notes')
+    expect(within(screen.getByRole('region', { name: 'Journal entries' })).getByRole('status').textContent).toContain('Mori is organizing your notes')
     expect(document.querySelector('.mm-quick-ai__loading .mm-mori')).toBeNull()
     expect(document.querySelectorAll('.mori-pet-root .mm-mori')).toHaveLength(1)
     expect(notesField().disabled).toBe(true)
@@ -560,7 +560,7 @@ describe('Quick AI Entry', () => {
 
       await act(async () => { vi.advanceTimersByTime(55_000) })
       expect(screen.queryByRole('alert')).toBeNull()
-      expect(screen.getByRole('status').textContent).toContain('Mori is organizing your notes')
+      expect(within(screen.getByRole('region', { name: 'Journal entries' })).getByRole('status').textContent).toContain('Mori is organizing your notes')
       await act(async () => resolve(recipe))
       expect(screen.getByRole('heading', { name: recipe.title })).toBeTruthy()
     } finally {

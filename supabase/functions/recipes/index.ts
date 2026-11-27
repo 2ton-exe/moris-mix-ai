@@ -1,3 +1,4 @@
+import { readAIUsage, type AIUsageDeps } from "../_shared/ai/usage.ts";
 import { type AuthDeps, authenticateRequest } from "../_shared/auth.ts";
 import {
   getCorsHeaders,
@@ -28,7 +29,7 @@ import {
   verifyCandidateToken,
 } from "../_shared/ai/candidateToken.ts";
 
-export type RecipesHandlerDeps = AuthDeps & {
+export type RecipesHandlerDeps = AuthDeps & AIUsageDeps & {
   /** Override for tests/DI; production reads `AI_CANDIDATE_TOKEN_SECRET`. */
   candidateTokenSecret?: string;
 };
@@ -75,6 +76,7 @@ export const MAX_RECIPE_CURSOR_CHARS = 4096;
 
 type RouteMatch =
   | { kind: "COLLECTION" }
+  | { kind: "AI_USAGE" }
   | { kind: "LINEAGE_AUTHORIZATION" }
   | { kind: "MEMBER"; id: string }
   | { kind: "LINEAGE"; id: string }
@@ -97,6 +99,7 @@ function parseRoute(pathname: string): RouteMatch {
   if (parts.length === 0) {
     return { kind: "COLLECTION" };
   }
+  if (parts.length === 1 && parts[0] === "ai-usage") return { kind: "AI_USAGE" };
   if (parts.length === 1 && parts[0] === "lineage-authorization") {
     return { kind: "LINEAGE_AUTHORIZATION" };
   }
@@ -961,6 +964,13 @@ async function handleRequest(
           },
         );
       }
+    } else if (route.kind === "AI_USAGE") {
+      if (req.method !== "GET") {
+        return recipesJsonResponse({ error: { code: "METHOD_NOT_ALLOWED", message: "Only GET and OPTIONS methods are supported." } }, {
+          status: 405,
+          headers: { Allow: "GET, OPTIONS", "Cache-Control": "private, no-store" },
+        });
+      }
     } else if (route.kind === "LINEAGE_AUTHORIZATION") {
       if (req.method !== "POST") {
         return recipesJsonResponse({ error: { code: "METHOD_NOT_ALLOWED", message: "Only POST and OPTIONS methods are supported." } }, {
@@ -1014,6 +1024,14 @@ async function handleRequest(
     }
 
     const { user, supabase } = auth.context;
+
+    if (route.kind === "AI_USAGE") {
+      const usage = await readAIUsage(user.id, deps);
+      return recipesJsonResponse(usage ?? { error: { code: "QUOTA_UNAVAILABLE", message: "AI usage is temporarily unavailable." } }, {
+        status: usage ? 200 : 503,
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    }
 
     if (route.kind === "LINEAGE_AUTHORIZATION") {
       if (!isJsonRequest(req)) {

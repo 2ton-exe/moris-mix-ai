@@ -290,6 +290,90 @@ function runDiscoveryAndIntegrityUnitTests() {
   }
 }
 
+async function runAIUsageSummaryDatabaseTests(client, connectionString, ssl) {
+  const summarySql = 'SELECT public.get_ai_usage_summary($1, $2, $3) AS result';
+  const read = async (userId, daily = 10, burst = null) => (await client.query(summarySql, [userId, daily, burst])).rows[0].result;
+  const user = crypto.randomUUID();
+  const other = crypto.randomUUID();
+  await client.query('BEGIN');
+  try {
+    await client.query("SELECT set_config('request.jwt.claim.role', 'service_role', true)");
+    await client.query('INSERT INTO auth.users(id) VALUES ($1), ($2)', [user, other]);
+    const empty = await read(user);
+    assert.deepEqual(empty.daily, { limit: 10, used: 0, remaining: 10, resetAt: empty.daily.resetAt });
+    assert.deepEqual(empty.shortTerm, { mode: 'fixed', limit: 5, used: 0, remaining: 5, nextChangeAt: null, retryAt: null });
+    const nextMidnight = new Date(empty.observedAt);
+    nextMidnight.setUTCHours(24, 0, 0, 0);
+    assert.equal(new Date(empty.daily.resetAt).toISOString(), nextMidnight.toISOString());
+    assert.equal((await read(user, 20)).daily.remaining, 20);
+    await client.query(`INSERT INTO public.ai_usage_daily(user_id, usage_date, operation_count, ai_rate_window_started_at, ai_rate_window_count)
+      VALUES ($1, (statement_timestamp() AT TIME ZONE 'utc')::date - 1, 2, statement_timestamp() - interval '10 seconds', 4)`, [user]);
+    const carried = await read(user);
+    assert.equal(carried.daily.used, 0);
+    assert.equal(carried.shortTerm.used, 4);
+    assert.equal(carried.shortTerm.remaining, 1);
+    assert.ok(new Date(carried.shortTerm.nextChangeAt) > new Date(carried.observedAt));
+    const daily = (await client.query(`INSERT INTO public.ai_usage_daily(user_id, usage_date, operation_count, ai_rate_window_started_at, ai_rate_window_count)
+      VALUES ($1, (statement_timestamp() AT TIME ZONE 'utc')::date, 3, statement_timestamp() - interval '10 seconds', 5) RETURNING id`, [user])).rows[0].id;
+    const fixed = await read(user);
+    assert.equal(fixed.daily.remaining, 7);
+    assert.equal(fixed.shortTerm.remaining, 0);
+    assert.equal(fixed.shortTerm.retryAt, fixed.shortTerm.nextChangeAt);
+    for (const [age, status] of [[50, 'refunded'], [30, 'confirmed'], [10, 'reserved'], [61, 'confirmed']]) {
+      await client.query(`INSERT INTO public.ai_quota_reservations(id, daily_usage_id, user_id, status, created_at)
+        VALUES ($1, $2, $3, $4, statement_timestamp() - $5 * interval '1 second')`, [crypto.randomUUID(), daily, user, status, age]);
+    }
+    const before = (await client.query('SELECT row_to_json(d) AS row FROM public.ai_usage_daily d WHERE user_id = $1 ORDER BY usage_date', [user])).rows;
+    const rolling = await read(user, 10, 3);
+    assert.equal(rolling.shortTerm.mode, 'rolling');
+    assert.equal(rolling.shortTerm.used, 3);
+    assert.equal(rolling.shortTerm.remaining, 0);
+    assert.equal(rolling.shortTerm.retryAt, rolling.shortTerm.nextChangeAt);
+    const reduced = await read(user, 2, 2);
+    assert.equal(reduced.daily.remaining, 0);
+    assert.ok(new Date(reduced.shortTerm.nextChangeAt) < new Date(reduced.shortTerm.retryAt));
+    assert.equal((await read(other, 10, 3)).shortTerm.used, 0);
+    assert.deepEqual((await client.query('SELECT row_to_json(d) AS row FROM public.ai_usage_daily d WHERE user_id = $1 ORDER BY usage_date', [user])).rows, before);
+    assert.equal((await client.query('SELECT count(*)::integer AS count FROM public.ai_quota_reservations WHERE user_id = $1', [user])).rows[0].count, 4);
+    await client.query("UPDATE public.ai_usage_daily SET ai_rate_window_started_at = statement_timestamp() - interval '61 seconds' WHERE user_id = $1", [user]);
+    assert.equal((await read(user)).shortTerm.used, 0);
+    for (const role of ['', 'anon', 'authenticated']) {
+      await client.query('SAVEPOINT usage_auth');
+      await client.query("SELECT set_config('request.jwt.claim.role', $1, true)", [role]);
+      await assert.rejects(() => read(user), error => error.code === '42501');
+      await client.query('ROLLBACK TO SAVEPOINT usage_auth');
+    }
+    for (const role of ['anon', 'authenticated']) {
+      await client.query('SAVEPOINT usage_execute');
+      await client.query(`SET LOCAL ROLE ${role}`);
+      await assert.rejects(() => read(user), error => error.code === '42501');
+      await client.query('ROLLBACK TO SAVEPOINT usage_execute');
+    }
+    assert.equal((await client.query("SELECT provolatile FROM pg_proc WHERE oid = 'public.get_ai_usage_summary(uuid,integer,integer)'::regprocedure")).rows[0].provolatile, 's');
+  } finally {
+    await client.query('ROLLBACK');
+  }
+  const concurrent = crypto.randomUUID();
+  const workers = new pg.Pool({ connectionString, ssl, max: 8, options: '-c request.jwt.claim.role=service_role' });
+  try {
+    await client.query('INSERT INTO auth.users(id) VALUES ($1)', [concurrent]);
+    const results = await Promise.all(Array.from({ length: 8 }, () => workers.query('SELECT public.consume_ai_quota($1, $2, 10, null, 3) AS result', [concurrent, crypto.randomUUID()])));
+    assert.equal(results.filter(result => result.rows[0].result.status === 'allowed').length, 3);
+    const concurrentSummary = (await workers.query(summarySql, [concurrent, 10, 3])).rows[0].result;
+    assert.equal(concurrentSummary.daily.used, 3);
+    assert.equal(concurrentSummary.shortTerm.used, 3);
+    const reservation = (await client.query('SELECT id FROM public.ai_quota_reservations WHERE user_id = $1 LIMIT 1', [concurrent])).rows[0].id;
+    await workers.query('SELECT public.reconcile_ai_quota($1)', [reservation]);
+    const refunded = (await workers.query(summarySql, [concurrent, 10, 3])).rows[0].result;
+    assert.equal(refunded.daily.used, 2);
+    assert.equal(refunded.shortTerm.used, 3);
+  } finally {
+    await workers.end();
+    await client.query('DELETE FROM auth.users WHERE id = $1', [concurrent]);
+  }
+  console.log('PASS: Read-only AI usage preserves counters, respects account ownership, fixed/rolling windows, UTC resets, refunds, and concurrent admissions.');
+}
+
 async function runGeminiAdmissionDatabaseTests(client, connectionString, ssl) {
   const workers = new pg.Pool({ connectionString, ssl, max: 6, options: "-c request.jwt.claim.role=service_role" });
   const project = 'test-gemini-admission';
@@ -1176,6 +1260,7 @@ async function runSchemaVerificationUnitTests() {
 
   const mockClientMissingTable = {
     query: async (sql) => {
+      if (sql === 'SHOW search_path') return { rows: [{ search_path: 'public, auth, extensions' }] };
       if (sql.includes('information_schema.tables')) {
         return { rows: [{ table_name: 'profiles' }, { table_name: 'recipes' }] };
       }
@@ -1189,6 +1274,7 @@ async function runSchemaVerificationUnitTests() {
 
   const mockClientMissingColumn = {
     query: async (sql) => {
+      if (sql === 'SHOW search_path') return { rows: [{ search_path: 'public, auth, extensions' }] };
       if (sql.includes('information_schema.tables')) {
         return { rows: [{ table_name: 'profiles' }, { table_name: 'recipes' }, { table_name: 'recipe_lineage' }, { table_name: 'ai_usage_daily' }] };
       }
@@ -1209,6 +1295,7 @@ async function runSchemaVerificationUnitTests() {
 
   const mockClientTypeMismatch = {
     query: async (sql) => {
+      if (sql === 'SHOW search_path') return { rows: [{ search_path: 'public, auth, extensions' }] };
       if (sql.includes('information_schema.tables')) {
         return { rows: [{ table_name: 'profiles' }, { table_name: 'recipes' }, { table_name: 'recipe_lineage' }, { table_name: 'ai_usage_daily' }] };
       }
@@ -1356,6 +1443,7 @@ async function runSchemaVerificationUnitTests() {
 
     return {
       query: async (sql) => {
+        if (sql === 'SHOW search_path') return { rows: [{ search_path: 'public, auth, extensions' }] };
         if (sql.includes('information_schema.tables')) {
           return { rows: completeTables };
         }
@@ -1389,6 +1477,17 @@ async function runSchemaVerificationUnitTests() {
   const resValid = await verifyInitialSchemaCompleteness(clientValid);
   assert.equal(resValid.status, 'complete');
   assert.equal(resValid.errors.length, 0);
+
+  let restoredSearchPath;
+  const policyReadFailure = new Error('policy catalog unavailable');
+  await assert.rejects(() => verifyInitialSchemaCompleteness({
+    query: async (sql, params) => {
+      if (sql.includes('FROM pg_catalog.pg_policies')) throw policyReadFailure;
+      if (sql.includes('pg_catalog.set_config')) restoredSearchPath = params[0];
+      return clientValid.query(sql, params);
+    }
+  }), policyReadFailure);
+  assert.equal(restoredSearchPath, 'public, auth, extensions');
 
   const clientDisabledRls = createMockClientWithCustom({ rlsOverrides: { recipes: false } });
   const resDisabledRls = await verifyInitialSchemaCompleteness(clientDisabledRls);
@@ -1739,8 +1838,20 @@ async function runDatabaseLifecycleIntegrationTests() {
       await runRecipeImageLifecycleDatabaseTests(testClient, testDbUrl, sslConfig);
       return;
     }
+    const originalSearchPath = (await testClient.query('SHOW search_path')).rows[0].search_path;
+    await testClient.query('SET search_path = public, auth, extensions');
+    try {
+      const policiesBefore = (await testClient.query('SELECT polname, polqual::text, polwithcheck::text FROM pg_policy ORDER BY oid')).rows;
+      assert.equal((await verifyInitialSchemaCompleteness(testClient)).status, 'complete');
+      assert.equal((await testClient.query('SHOW search_path')).rows[0].search_path, 'public, auth, extensions');
+      assert.deepEqual((await testClient.query('SELECT polname, polqual::text, polwithcheck::text FROM pg_policy ORDER BY oid')).rows, policiesBefore);
+    } finally {
+      await testClient.query("SELECT set_config('search_path', $1, false)", [originalSearchPath]);
+    }
+    console.log('PASS: Policy verification accepts auth in the session search path without changing the session or policies.');
     await runQuotaAuthorizationDatabaseTests(testClient);
     await runGeminiAdmissionDatabaseTests(testClient, testDbUrl, sslConfig);
+    await runAIUsageSummaryDatabaseTests(testClient, testDbUrl, sslConfig);
     await runRecipeImageLifecycleDatabaseTests(testClient, testDbUrl, sslConfig);
     await runRecipeSearchMigrationDatabaseTests(testClient);
     await runChefCandidateDatabaseTests(testClient);

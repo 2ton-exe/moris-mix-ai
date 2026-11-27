@@ -83,6 +83,14 @@ jobs:
         env:
           QA04_BROWSER: ${{ inputs.browser }}
 
+      - name: Check Mori usage footer and popover
+        if: steps.frontend.outputs.exists == 'true' && matrix.shard == 2
+        working-directory: frontend
+        run: node e2e/mori-dialogue.browser.mjs
+        env:
+          MORI_USAGE_ONLY: '1'
+          MORI_BROWSER: ${{ inputs.browser }}
+
       - name: Upload Playwright failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4

@@ -1,3 +1,4 @@
+import { subscribeAIUsageChanged } from '../api/aiUsage'
 import { describe, expect, it, vi } from 'vitest'
 import type { Session } from '@supabase/supabase-js'
 import { apiClient } from '../api/config'
@@ -83,4 +84,18 @@ it.each([
   { name: 'rice', quantity: 1, unit: 'mug\nfull' },
 ])('rejects invalid extracted ingredient %j', (ingredient) => {
   expect(extractRecipeResponseSchema.safeParse({ recipe: { ...recipe, ingredients: [ingredient] } }).success).toBe(false)
+})
+
+
+it('refreshes the account usage after extraction succeeds or is rate-limited', async () => {
+  const changed = vi.fn()
+  const unsubscribe = subscribeAIUsageChanged(changed)
+  const failure = new Error('rate limited')
+  const client = { postAuthenticatedJson: vi.fn().mockResolvedValueOnce({ recipe }).mockRejectedValueOnce(failure) }
+  try {
+    await createExtractRecipeApi(client).extract('Soup notes', request)
+    expect(changed).toHaveBeenLastCalledWith(request.userId)
+    await expect(createExtractRecipeApi(client).extract('Soup notes', request)).rejects.toBe(failure)
+    expect(changed).toHaveBeenCalledTimes(2)
+  } finally { unsubscribe() }
 })
