@@ -8,6 +8,15 @@ Do not count intentional controlled failure experiments, deliberately failing ga
 
 Use [pipeline metrics](pipeline-metrics.md) for defined-period counts/rates and the [deployment runbook](deployment-runbook.md#12-recovery-and-rollback) for rollback procedures. The 2026-11-13 entry below records a production deployment failure, not a proven application outage. The older DEVOPS-86 record concerns non-gating delivery tooling and must not be counted as a production deployment failure. Neither entry establishes a complete sprint incident count.
 
+## Recovery event 2026-11-27 — Rollback deployment superseded by newer main
+
+**Category:** Delivery coordination / stale-revision guard; no production outage established. Planned CTA rehearsal under #165, not a genuine application defect.
+
+- **Detection:** #309 squash merged at 23:06:41 PHT (`02a6c67`), then #308 advanced main to `66ccff1` before the production guard ran. [Standalone rollback job](https://github.com/2ton-exe/moris-mix-ai/actions/runs/46021942517/job/140585877658) rejected the stale revision at 23:11:54 PHT, before any provider writes; deployment and smoke were skipped.
+- **Impact:** Standalone rollback release did not deploy; no outage or partial provider mutation was established. The inverse remained in main along with #308's unrelated changes.
+- **Recovery:** [Descendant main run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/46021982543) passed deployment and smoke at 23:13:52 PHT; the full run passed. Worker version `4406aef4-4424-49d9-b46f-22c7ac21991a`. The operator confirmed the restored CTA. Merge-to-smoke elapsed 7m 11s; exact end-user recovery observation timestamp unavailable. No outage duration is claimed.
+- **Prevention:** Coordinate a quiet release window and hold unrelated merges until recovery verification. Retain the stale-revision guard; do not rerun superseded SHAs or revert unrelated product work. No pipeline modification needed.
+
 ## Incident 2026-11-27 — Production release credentials unavailable
 
 **Affected revision:** `ace068adfcc8b4bb468e7bc1349204f6077102cb` (squash merge of #291).

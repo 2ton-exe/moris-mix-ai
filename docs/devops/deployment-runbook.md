@@ -1065,7 +1065,16 @@ A green workflow alone is not sufficient evidence of successful deployment.
 
 ## 12. Application recovery and rollback
 
-**Status (2026-11-21):** Documented application-version recovery procedure only. **No completed application rollback/redeployment drill, post-recovery production verification or teammate execution is claimed.** The former #73 CI ownership reversal was not an application-version rollback. [Issue #165](https://github.com/2ton-exe/moris-mix-ai/issues/165) tracks the real drill and evidence.
+**Status (2026-11-27 PHT):** The application-only rollback rehearsal restored the sample recipe CTA through reviewed Git revert and automated production redeployment. The standalone rollback SHA was safely rejected as stale after an overlapping merge; its inverse reached production in the next successful release. Teammate runbook walkthrough remains unverified. [Issue #165](https://github.com/2ton-exe/moris-mix-ai/issues/165) retains the execution evidence.
+
+### Executed rehearsal — 2026-11-27 PHT
+
+- Previously verified target: `d329285ce0be5e955ee6ac76751cf97f6e58f799` ([production run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45998866382)). Forward demonstration #307 deployed `87e320a2e09888c1d1312796fa1534d30eaa7799` ([production run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/46017219840)); CTA changed from `Start a private journal` to `Create your recipe journal` without changing `/signup`. This reused the completed deployment demonstration instead of #296 (closed unmerged).
+- #309 reversed exactly the three frontend implementation/test files. Both Belen and Ramos approved `feb33bccaf2fda60aa9112732978046aed5f3370`; [PR run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/46020643414) passed the required checks, nine browser shards, staging deployment and staging smoke. Hosted RLS was skipped on PR. Squash merged at 23:06:41 PHT to `02a6c67d4c8ffc553d12f5464bf7785a50b188eb`, with the identical Git tree of the previous release.
+- [Standalone main run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/46021942517) failed at the stale-revision guard before any provider deployment or production smoke because #308 advanced main immediately after #309. Do not retry the obsolete SHA. See the incident log for the release-coordination gap.
+- The descendant `66ccff12a63f9640303475b4877bc51acd9dee67` retained the inverse plus #308's unrelated AI revision changes. [Main run 46021982543](https://github.com/2ton-exe/moris-mix-ai/actions/runs/46021982543) passed all validation, hosted RLS, nine browser shards, credential/URL preflight, release prerequisites, seven intended Edge deployments, Cloudflare deployment, deployed AI routes and production runtime smoke. Conditional account export/final image cleanup were skipped. Worker version `4406aef4-4424-49d9-b46f-22c7ac21991a` was reported by the deployment log. Smoke completed at 23:13:52 PHT; elapsed rollback merge to successful smoke: 7m 11s (not outage recovery time). Full workflow passed at 23:16:23 PHT.
+- The operator confirmed the live sample recipe page restored `Start a private journal` and indicated retaining the original label; no screenshot, exact browser observation time or separate Belen final-state message was inspected here. Source retains `/signup`; live link verification is not separately recorded. No second restoring release is planned on this interpretation. No schema reversal or database data restore was attempted. This demonstrates source-controlled recovery of the scoped CTA, not a byte-identical provider redeployment of the old SHA, instant provider rollback, or full backend recovery.
+- Remaining: teammate walkthrough and explicit release-owner final-state record if not covered by operator confirmation. Do not manufacture evidence or classify the harmless marker as an outage.
 
 ### Establish the recovery boundary
 
@@ -1075,7 +1084,7 @@ A green workflow alone is not sufficient evidence of successful deployment.
 4. **Get the owners' decisions.** Belen/the release owner identifies the intended running release, a known-good candidate and desired final state, with exact commit/tag identifiers. Ramos/the database owner checks schema/data compatibility, migrations and whether application-only rollback is safe. Record owner agreement and drill approval before production actions.
 5. **Keep database recovery separate.** A Git revert, Cloudflare frontend rollback or Supabase Edge Function redeployment does **not** reverse migrations, restore row data or prove database recovery. Isolated restoration remains unsuccessful under [#159](https://github.com/2ton-exe/moris-mix-ai/issues/159); production migration readiness is separately tracked under [#155](https://github.com/2ton-exe/moris-mix-ai/issues/155), and [PR #154](https://github.com/2ton-exe/moris-mix-ai/pull/154) was still open during this documentation audit. Never treat a backup checksum as restore proof.
 
-### Preferred reviewed application recovery path — not yet executed as a drill
+### Preferred reviewed application recovery path
 
 1. From **current** `main`, prepare a small corrective or `git revert` PR that restores the agreed behavior without altering production data. Specify exactly which application changes the revert includes. A revert makes a **new** commit: other intervening changes can prevent byte-identical reconstruction of a former release.
 2. Validate the change through the normal PR process. Obtain independent human approval, all required Frontend/Database/Edge API contexts, and resolve review threads. Inspect relevant browser E2E and staging evidence separately. On `main`, E2E does **not** block production, so a release can succeed while a browser job has not passed. Staging authorization remains under #163 review; do not assume staging deployment waits for human approval.
@@ -1119,7 +1128,7 @@ Cloudflare deployment history may offer a frontend rollback, but it is **not** t
 | Teammate rehearsal | Person, date, steps actually followed, feedback and any resulting corrections |
 | Boundaries | Explicit confirmation that application rollback does not imply schema/data restoration |
 
-**Current limitation:** This procedure is documentation, not operational execution evidence. Do not check #165's rollback-drill or production-restoration acceptance items until real authorized execution and verification exist. The current architecture and stage purposes are summarized in [`PIPELINE.md`](PIPELINE.md); older sections of this runbook preserve historical evidence and do not override current GitHub workflow source.
+**Current limitation:** The scoped CTA recovery has been executed as recorded above. Provider-history rollback and production database recovery are not established; teammate walkthrough and separate owner final-state evidence remain unverified. The current architecture and stage purposes are summarized in [`PIPELINE.md`](PIPELINE.md); older sections of this runbook preserve historical evidence and do not override current GitHub workflow source.
 
 ## 13. Pipeline Metrics
 
