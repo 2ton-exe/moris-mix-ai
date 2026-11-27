@@ -21,6 +21,7 @@ import { JournalLogoutGuardContext, type JournalLogoutGuard } from '../journal/J
 import type { RecipeEditorRecord, SaveRecipeDraft } from './submission'
 import { recipeFormFixture } from './testing/fixtures'
 import { recipeFormApi } from './api'
+import { RecipeForm } from './RecipeForm'
 
 const draft = { ...recipeFormFixture, notes: '' }
 const NativeRequest = globalThis.Request
@@ -560,4 +561,59 @@ it('keeps the displayed edit baseline across background refreshes and advances i
   title('A second title edit')
   await act(async () => { click('Save changes') })
   expect(persist).toHaveBeenNthCalledWith(2, expect.objectContaining({ title: 'A second title edit' }), expect.anything(), initial.id, firstSaved)
+})
+
+it.each([{ minHeight: '700px' }, { height: '700px', minHeight: '0px' }])(
+  'keeps a review save stable before lineage confirmation (spread: %j)', async (spreadStyle) => {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query === '(min-width: 1100px)', media: query,
+    addEventListener: vi.fn(), removeEventListener: vi.fn(),
+  }))
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(400)
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+    // After comparison disappears, a method leaf is taller than the inspiration leaf.
+    if (this.closest('.mm-chef-comparing')) return 700
+    return this.classList.contains('mm-writing-leaf')
+      ? this.querySelector('textarea[name^="instructions."]') ? 900 : 200
+      : 700
+  })
+  let finishLineage = () => {}
+  const lineage = new Promise<void>(resolve => { finishLineage = resolve })
+  const persistRecipe = vi.fn()
+  function ReviewSave() {
+    const [recipeSaved, setRecipeSaved] = useState(false)
+    return <RecipeForm mode="create" reviewWorkflow initialValuesAreUnsaved
+      initialValues={{ ...draft, ingredients: [{ name: 'olive oil', quantity: 2, unit: 'tsp', inferred: false }],
+        instructions: [{ step: 1, text: 'Cook gently. '.repeat(90) }] }}
+      createSubmitLabel="Save new version"
+      reviewComparison={recipeSaved ? undefined : () => <p>Original and proposed amounts</p>}
+      reviewPage={{ title: 'Recipe inspiration', content: <p>Original recipe selected.</p> }}
+      reviewReceipt={recipeSaved && <><h2 tabIndex={-1}>Edited oil recipe</h2><a href="/app/recipes/saved-version">Open saved version</a></>}
+      onSubmit={async values => {
+        persistRecipe(values)
+        setRecipeSaved(true)
+        await lineage
+        return { id: 'saved-version' }
+      }}
+      renderFrame={content => <div className="mm-journal-book">
+        <div className="mm-journal-spread" style={spreadStyle}>
+          <div className="mm-journal-page" style={{ paddingLeft: 0, paddingRight: 0 }}>{content}</div>
+        </div>
+      </div>} />
+  }
+  render(<ReviewSave />)
+  title('Edited oil recipe')
+  for (let turn = 0; turn < 20 && screen.queryByRole('button', { name: /^Next:/ }); turn++) {
+    fireEvent.click(screen.getByRole('button', { name: /^Next:/ }))
+  }
+  click('Save new version')
+  expect(persistRecipe).toHaveBeenCalledTimes(1)
+  expect(persistRecipe).toHaveBeenCalledWith(expect.objectContaining({
+    title: 'Edited oil recipe', ingredients: [expect.objectContaining({ quantity: 2, unit: 'tsp' })],
+  }))
+  expect(screen.getByRole('button', { name: 'Saving…' })).toHaveProperty('disabled', true)
+  await act(async () => { finishLineage() })
+  expect(screen.getByRole('region', { name: 'Saved recipe' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Open saved version' })).toHaveProperty('pathname', '/app/recipes/saved-version')
+  expect(persistRecipe).toHaveBeenCalledTimes(1)
 })

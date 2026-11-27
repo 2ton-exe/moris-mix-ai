@@ -3345,3 +3345,129 @@ Deno.test("Chef revisions use exact selected evidence and sign only an owned sou
   assertEquals(observedContexts.length, 6);
   assertNoDatabaseWrites(requests);
 });
+
+for (
+  const testCase of [
+    {
+      name: "canonical units",
+      riceUnit: "cup",
+      oilQuantity: 2,
+      oilUnit: "tsp",
+      riceQuantity: 1,
+      status: 200,
+    },
+    {
+      name: "legacy unit aliases",
+      riceUnit: "cups",
+      oilQuantity: 2,
+      oilUnit: "teaspoons",
+      riceQuantity: 1,
+      status: 200,
+    },
+    {
+      name: "equivalent amount conversion",
+      riceUnit: "cup",
+      oilQuantity: 1 / 3,
+      oilUnit: "tbsp",
+      riceQuantity: 1,
+      status: 422,
+    },
+    {
+      name: "two actual ingredient changes",
+      riceUnit: "cups",
+      oilQuantity: 2,
+      oilUnit: "tsp",
+      riceQuantity: 2,
+      status: 422,
+    },
+  ]
+) {
+  Deno.test(`Chef oil quantity revision: ${testCase.name}`, async () => {
+    const noteExcerpt =
+      "Use 2 teaspoons of olive oil instead of 1 teaspoon; keep rice and tomato unchanged.";
+    const source = {
+      id: PARENT_ID,
+      user_id: VERIFIED_USER_ID,
+      title: "Rice and tomato",
+      star_rating: null,
+      notes: noteExcerpt,
+      ingredients: [
+        { name: "rice", quantity: 1, unit: testCase.riceUnit, inferred: false },
+        { name: "tomato", quantity: 1, unit: "piece", inferred: false },
+        { name: "olive oil", quantity: 1, unit: "tsp", inferred: false },
+      ],
+      instructions: [{ step: 1, text: "Cook rice and tomato with olive oil." }],
+    };
+    const original = structuredClone(source);
+    const { fetchImpl, requests } = createFetchMock();
+    const fetch: typeof globalThis.fetch = (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (
+        url.pathname === "/rest/v1/recipes" && (init?.method ?? "GET") === "GET"
+      ) {
+        assertEquals(url.searchParams.get("id"), "eq." + PARENT_ID);
+        assertEquals(url.searchParams.get("user_id"), "eq." + VERIFIED_USER_ID);
+        return Promise.resolve(
+          new Response(JSON.stringify([source]), { headers: jsonHeaders() }),
+        );
+      }
+      return fetchImpl(input, init);
+    };
+    const provider: AIProvider = {
+      ...providerReturning(MOCK_GENERATED_RECIPE),
+      generateRecipe: () =>
+        Promise.resolve({
+          recipe: {
+            title: "Rice and tomato for next time",
+            ingredients: [
+              {
+                ...source.ingredients[0],
+                quantity: testCase.riceQuantity,
+                unit: "cup",
+              },
+              source.ingredients[1],
+              {
+                ...source.ingredients[2],
+                quantity: testCase.oilQuantity,
+                unit: testCase.oilUnit,
+              },
+            ],
+            instructions: source.instructions,
+          },
+          parentRecipeIds: [PARENT_ID],
+          substitutions: [],
+          revisionReason: "Increase olive oil for the next cook.",
+        }),
+    };
+    const response = await handler(
+      generateRequest(
+        JSON.stringify({ sourceRecipeId: PARENT_ID, noteExcerpt }),
+      ),
+      {
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch,
+        provider,
+      },
+    );
+    assertEquals(response.status, testCase.status);
+    const result = await response.json();
+    if (testCase.status === 200) {
+      assertEquals(result.revision.ingredient, "olive oil");
+      assertEquals(result.revision.ingredientIndex, 2);
+      assertEquals(result.revision.before, { quantity: 1, unit: "tsp" });
+      assertEquals(result.revision.after, { quantity: 2, unit: "tsp" });
+      assertEquals(result.recipe.ingredients[0], {
+        ...original.ingredients[0],
+        unit: "cup",
+      });
+      assertEquals(result.recipe.ingredients[1], original.ingredients[1]);
+      assertEquals(result.parents.map((parent: { id: string }) => parent.id), [
+        PARENT_ID,
+      ]);
+    } else {
+      assertEquals(result.error.code, "REVISION_CHANGE_UNSUPPORTED");
+    }
+    assertEquals(source, original);
+    assertNoDatabaseWrites(requests);
+  });
+}
