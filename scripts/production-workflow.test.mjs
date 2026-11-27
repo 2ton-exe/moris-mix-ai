@@ -1078,6 +1078,7 @@ test('final cleanup invocation rejects unhealthy responses and invalid targets b
   const projectRef = readFileSync('supabase/config.toml', 'utf8').match(/^project_id = "([^"]+)"/m)[1];
   const check = (overrides = {}) => spawnSync('bash', ['-c', `
     curl() {
+      printf '%s\n' 'CURL_CALLED' >&2
       printf '%s' "$TEST_RESPONSE"
       return "$TEST_CURL_STATUS"
     }
@@ -1103,7 +1104,11 @@ test('final cleanup invocation rejects unhealthy responses and invalid targets b
     { RECIPE_IMAGE_FINAL_CLEANUP_TOKEN: '' }, { RECIPE_IMAGE_FINAL_CLEANUP_TOKEN: 'short' },
     { SUPABASE_URL: 'http://localhost:54321' }, { SUPABASE_PROJECT_REF: 'wrong-project' },
     { SUPABASE_URL: 'https://other.supabase.co' },
-  ]) assert.notEqual(check(overrides).status, 0, JSON.stringify(overrides));
+  ]) {
+    const result = check(overrides);
+    assert.notEqual(result.status, 0, JSON.stringify(overrides));
+    if (!('TEST_CURL_STATUS' in overrides)) assert.doesNotMatch(result.stderr, /CURL_CALLED/);
+  }
 });
 
 test('final cleanup availability probe is read-only and requires the configured handler', () => {
