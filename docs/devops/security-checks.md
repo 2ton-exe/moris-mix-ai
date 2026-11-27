@@ -9,14 +9,15 @@ Inventory observed on 2026-11-02 against main `d1dbba6c001c39c65d74d6856a83058f7
 The status below supersedes the November 2 and November 6 inventories. Those
 sections preserve the evidence available at the time.
 
-## Current controls and remaining decisions — 2026-11-21
+## Current controls and remaining decisions — 2026-11-27
 
-This review used `main` at `7805976369ee6fd460dc0559195be39a01532748`
-and live GitHub settings. The repository's default Actions token is read-only
+The November 26 workflow review used `main` at
+`7e5260be9c92d0dc07a94ae06447020655b1381b` and live GitHub settings. The
+repository's default Actions token is read-only
 and cannot approve pull requests. The PR and main callers explicitly request
 `contents: read`. The three required merge contexts are Frontend, Database,
 and Edge/API. E2E and staging are separate, and production runs its own
-validation and post-deployment smoke. The [reviewed main run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44873265800)
+validation and post-deployment smoke. The [reviewed main run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45664545196)
 recorded successful deployment URL, AI-route, and runtime smoke steps.
 
 ### Workflow permissions and staging
@@ -33,8 +34,8 @@ recorded successful deployment URL, AI-route, and runtime smoke steps.
   `project-sync.mjs` queries the configured organization and validates that
   Project #2 is open and matches the expected owner and title. This is an
   application check. The token-minting job now pins all three actions to the
-  existing upstream commits. Its hosted execution with those pins remains
-  to be verified.
+  existing upstream commits. The [scheduled Project sync run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45545447511)
+  passed on `main` at `e22478df287ceb59c58550fd850a683baab9aef4`.
 - Standard validation still has mutable action references, and the dormant
   reusable Cloudflare workflow has no active caller. These are separately
   tracked supply-chain surfaces. Pins reduce tag drift, while runner images,
@@ -43,26 +44,88 @@ recorded successful deployment URL, AI-route, and runtime smoke steps.
   reviewers. Administrator bypass is disabled. Eligible same-repository PRs
   deploy automatically after the core checks succeed. Drafts, forks,
   Dependabot authors, and verified docs-only changes are excluded. The
-  rejected [#263 probe](https://github.com/2ton-exe/moris-mix-ai/pull/263)
-  recorded how the former approval policy behaved. On
+  [#263 probe](https://github.com/2ton-exe/moris-mix-ai/pull/263)
+  recorded evidence from the former approval policy. On
   [PR #266, attempt 3](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44886246923/attempts/3),
   the staging deploy, URL check and frontend/demo smoke step passed with no
   deployment approval recorded. A
   [fresh Dependabot run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44706776512)
   separately showed the staging caller skip with core and E2E checks passing.
 - Automatic staging trusts repository writers and the eligible PR revision.
-  The Cloudflare dashboard entry named **Moris Mix Staging Deploy** showed
-  account-wide Workers Scripts Edit plus account and user read permissions.
-  GitHub's masked secret prevents independently matching that entry to the
-  installed value. A Worker-specific Editor candidate was prepared as an
-  unsubmitted draft. The incumbent secret stays in place while the replacement and
-  rollback path are unverified. DevOps and the Cloudflare owner must decide
-  whether to accept that residual scope pending a controlled candidate run.
-  The two generic Cloudflare secret names also exist in the staging
-  environment. The active staging workflow uses the staging-specific names.
-  The provider owner should verify the generic entries' intended scope and
-  usage before deciding whether to remove them.
-  [Cloudflare Worker roles](https://developers.cloudflare.com/workers/authorization/workers/)
+  The operator's Cloudflare audit event named **Moris Mix Staging Deploy** for
+  the Worker version in the [November 25 staging job](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45626259513/job/139248095095).
+  That incumbent token grants account-wide Workers Scripts Edit, including
+  production Workers in the same account. The operator verified the saved
+  incumbent value against its token ID and retained it for rollback. The
+  active staging workflow uses the staging-specific names. The two generic
+  Cloudflare secret names in the staging environment have no checked-in
+  staging consumer. Confirm external consumers and authorize cleanup before
+  removing them.
+- The operator installed a staging-Worker-only Editor candidate in a separate
+  staging environment secret. Its [controlled run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45816922318)
+  on [PR #290](https://github.com/2ton-exe/moris-mix-ai/pull/290) verified
+  compatibility. One attempt passed Wrangler deployment, URL verification, and
+  runtime smoke for Worker version `2ee96757-7da2-404e-a093-24f1893c2443`.
+  The operator reported that the newest visible audit event preceded the
+  deployment. Account-owned tokens use the Account actor type in Audit Logs v2.
+  [Cloudflare Audit Logs](https://developers.cloudflare.com/fundamentals/account/account-security/audit-logs/)
+- On November 27, GitHub recorded the update of the regular
+  `STAGING_CLOUDFLARE_API_TOKEN` secret at 14:21:08 PHT after the operator
+  entered the tested candidate. The next automatic staging run deployed Worker
+  version `a4d052fc-e66a-4e46-8f4b-c443cb10200a` and passed URL verification
+  and runtime smoke. Playwright failures left the overall PR run failed.
+  The temporary PR #290 closed unmerged. The candidate entry and saved
+  incumbent were retained. Direct Cloudflare audit attribution for the
+  replacement remains pending.
+  [Canonical staging run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45951106396) ·
+  [Closed candidate PR](https://github.com/2ton-exe/moris-mix-ai/pull/290) ·
+  [Issue evidence](https://github.com/2ton-exe/moris-mix-ai/issues/163)
+
+### Production credential isolation
+
+At the reviewed main revision, release and backup still read legacy
+repository-scope Cloudflare and Supabase credentials. The main-only workflow
+guards allow these jobs to run on main, while repository secrets remain
+available to eligible same-repository PR workflows. The release workflow in
+this change uses three dedicated names from `production-release`, and the
+backup uses two separate Supabase names from `production-backup`. GitHub
+lists all five entries. Both environments allow only the `main` branch.
+Administrator bypass is disabled for `production-release` and enabled for
+`production-backup`. Keep repository and organization copies of the new
+names absent.
+[GitHub Actions secret scopes](https://docs.github.com/en/enterprise-cloud@latest/code-security/reference/secret-security/secret-types)
+
+The release rejects missing and whitespace-only credentials before checkout.
+Before any provider write, it verifies the dedicated Cloudflare token is active
+and reads the enabled production Worker's HTTPS URL from its Worker-scoped
+record. A failed read or mismatch with `PRODUCTION_FRONTEND_URL` stops the job.
+The post-deployment URL and smoke checks still run on successful releases.
+Backup validates its dedicated inputs before project link and dump.
+The release reads Supabase migration history only when the recipe-image or
+image-cleanup flag is enabled.
+
+Before an authorized cutover, verify Supabase release PAT authentication on the
+exact production project by reading a known Edge Function and migration history.
+For backup, verify a production-project Management API read granted to the
+backup PAT and authenticate to the intended database over verified TLS with
+`SELECT 1`. Record only the target and sanitized result. Review the provider
+policies for write and backup grants, then verify the authorized release and
+backup after cutover.
+[Cloudflare Worker metadata](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/methods/get/) ·
+[Supabase PAT permissions](https://supabase.com/docs/guides/platform/personal-access-tokens)
+
+PR #154 proposed migration steps that referenced legacy Supabase credentials
+and closed unmerged. The dormant reusable Cloudflare workflow still references
+the generic Cloudflare names. Verify active and external consumers with the
+release and backup owners before retiring credentials. Coordinate production
+release and rollback readiness with #165 and backup verification with #159
+before live operations. Keep a known-good Worker version, previous Edge Function
+artifacts, and an approved recovery path available for cutover. The repository
+boundary stays open until equivalent legacy access is retired or its risk is
+explicitly accepted.
+[Closed migration proposal](https://github.com/2ton-exe/moris-mix-ai/pull/154) ·
+[Rollback rehearsal](https://github.com/2ton-exe/moris-mix-ai/issues/165) ·
+[Backup and restore](https://github.com/2ton-exe/moris-mix-ai/issues/159)
 
 ### Dependency and secret findings
 
@@ -73,18 +136,13 @@ supported-pattern and history-coverage limits below, and use clearly invalid
 placeholders in tests. This evidence does not cover every historical commit,
 CI log, issue, or artifact.
 
-The one open Dependabot record is the moderate
+The November 26 Dependabot query returned zero open alerts.
 [`minimatch` alert #10](https://github.com/2ton-exe/moris-mix-ai/security/dependabot/10)
-for the frontend lockfile. The affected `10.2.6` resolution comes through
-`@typescript-eslint/typescript-estree`. The advisory lists `11.0.1` as its
-first patched version. The frontend tooling owner should evaluate an upstream
-tooling update and verify the resulting graph, lint, tests, run-time build, and
-fresh audit. A blind major override can violate the parent's dependency
-contract. The [latest hosted frontend audit](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44706776506/job/136188235380)
-reported one moderate `minimatch` finding with audit exit 1 even though the
-observation job succeeded. Earlier Zod, Tinypool/Vitest, and Vite findings belong to older
-snapshots. See [Vitest upgrade #183](https://github.com/2ton-exe/moris-mix-ai/pull/183)
-and [Vite update #241](https://github.com/2ton-exe/moris-mix-ai/pull/241).
+is fixed following [#289](https://github.com/2ton-exe/moris-mix-ai/pull/289).
+Both pnpm audit steps in its [hosted Security Audit](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45523277382)
+exited zero with no advisories, and Deno reported no known vulnerabilities.
+These are results for that PR revision and registry response. Earlier Zod,
+Tinypool/Vitest, and Vite findings belong to older snapshots.
 
 ### Enforcement and triage
 
@@ -95,12 +153,12 @@ and [Vite update #241](https://github.com/2ton-exe/moris-mix-ai/pull/241).
 | Dependency advisory | Security Audit is path-filtered and observation-only. The component owner assesses reachability, build or runtime exposure, severity, and the supported patch. DevOps coordinates evidence and escalation. |
 | Scanner error, skipped run, or suspected false positive | Treat coverage as unknown. Inspect the audit step and report, then retry or record the limitation. Severity and a green job alone do not establish a release decision. |
 
-For final review, decide whether a confirmed high or critical finding on a
-shipped or CI-executed path should require a manual release hold until the
-component owner remediates it or the release owner records an exception with
-scope, owner, rationale, and expiry. A live credential exposure is handled
-through the incident process. No additional automated merge or release gate
-is proposed for path-filtered audits or registry failures.
+Confirmed high or critical findings on shipped or CI-executed paths require
+owner triage and an explicit release-owner hold or exception decision before
+the affected release. Record the scope, owner, rationale, and expiry for
+exceptions. Handle credible live credential exposure through the incident
+process. The audit remains observation-only.
+[Recorded enforcement decision](https://github.com/2ton-exe/moris-mix-ai/issues/163)
 
 ## GitHub-native security controls — 2026-11-06
 

@@ -152,7 +152,7 @@ An authorized release operator should perform these steps in order. Keep the rep
    The [readiness verifier](../../scripts/verify-upload-signing-readiness.mjs) checks the intended Supabase project and HTTPS origin configuration, the verified readiness attestation, accepted project credentials, required migrations, enabled and forced RLS on upload intents, schema limits, and service-role-only table/RPC access. This describes configured prerequisites; it does not claim a readiness run for a later `main` SHA.
 2. Confirm the existing recipe-image bucket settings and deployed origin against the [image API contract](../api/recipe-images.md#be-13-implementation-and-deployment-dependencies). In isolated non-production, capture a browser CORS preflight, a successful signed PUT, a same-key PUT rejected with `412`, and successful attach and private read. Confirm expired staging cleanup can list and delete staging objects, free upload quota, and preserve the finalized image. Record results without keys or signed URLs. Non-production evidence does not replace checking the production bucket's CORS rule for `PRODUCTION_FRONTEND_URL`.
 3. Configure `RECIPE_IMAGE_CLEANUP_TOKEN` in the Supabase runtime and in the `recipe-image-cleanup-production` GitHub environment. Set `VITE_SUPABASE_URL` and `SUPABASE_PROJECT_REF` for that environment, restrict it to `main`, and allow unattended scheduled runs. The cleanup workflow is scheduled every 15 minutes and supports manual dispatch, but its job runs only on main when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`. For the first rollout, pause **Recipe Image Upload Cleanup** so it cannot call an older worker. Set the cleanup opt-in and run **Modular Main Validation** on `main` while the image UI is off to deploy the current worker; the production release checks the required migration ledger when cleanup is enabled. After deployment succeeds, re-enable the cleanup workflow, run it from `main`, and check its outcome before opening uploads.
-4. Set the repository variable `VITE_RECIPE_IMAGES=true` and run **Modular Main Validation** on `main` after completing step 1. The same-run readiness job starts automatically and must succeed before production continues. The release also requires the cleanup opt-in and checks the production migration ledger using the existing Supabase access token (requires `database_migrations_read`). Missing migrations, unavailable history, failed readiness, or a failed image deploy block publication. Check that `recipe-image-attach`, conditional download, cleanup, signer, and Cloudflare steps have the expected outcomes and record the release revision. With an authorized disposable account and recipe, verify that the signer returns a direct R2 URL and the browser can upload, attach, reload the private image, and recover staging quota. Verify a different account cannot obtain the private download URL.
+4. Set the repository variable `VITE_RECIPE_IMAGES=true` and run **Modular Main Validation** on `main` after completing step 1. The same-run readiness job starts automatically and must succeed before production continues. The release also requires the cleanup opt-in and checks the production migration ledger using `PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN` (requires `database_migrations_read`). Missing migrations, unavailable history, failed readiness, or a failed image deploy block publication. Check that `recipe-image-attach`, conditional download, cleanup, signer, and Cloudflare steps have the expected outcomes and record the release revision. With an authorized disposable account and recipe, verify that the signer returns a direct R2 URL and the browser can upload, attach, reload the private image, and recover staging quota. Verify a different account cannot obtain the private download URL.
 
 Leave `VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY` unset or `false` until the current deployed signer is verified to accept `request_id`. This client option is independent of the same-key retry for a signed R2 PUT.
 
@@ -166,9 +166,9 @@ the `cloudflare-production` concurrency lock gate production releases.
 
 The production release order is:
 
-1. Validate production deployment configuration.
+1. Check the dedicated `production-release` secrets before checkout, then validate production deployment configuration.
 2. Install frontend dependencies using the frozen lockfile.
-3. Build the frontend.
+3. Build the frontend, reject a stale main revision, and verify the production Cloudflare Worker URL before the first provider write. Check recipe image prerequisites when enabled.
 4. Deploy `recipes` (`deploy-recipes`).
 5. Skip `account-export` (`deploy-account-export`); its step is explicitly `if: false` pending BE-16 acceptance gates.
 6. Deploy `extract-recipe` (`deploy-extract-recipe`).
@@ -186,8 +186,9 @@ The production release order is:
 17. Preserve the separate runtime and AI route evidence artifacts.
 
 Each Supabase deployment is a separate explicit target using the repository-pinned
-CLI from `frontend`, with the existing `SUPABASE_ACCESS_TOKEN` and
-`SUPABASE_PROJECT_REF` scope and `--project-ref "$SUPABASE_PROJECT_REF"`,
+CLI from `frontend`. The workflow maps `PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN`
+from `production-release` to the CLI's `SUPABASE_ACCESS_TOKEN` and passes
+`--project-ref "$SUPABASE_PROJECT_REF"`,
 `--no-verify-jwt`, `--use-api`, and `--yes`. There is no broad deploy-all command
 or production database migration automation. Partial release is possible if a
 later target fails after an earlier deployment succeeds. Any failed deployment
@@ -321,7 +322,7 @@ Configure these Actions variables under **Settings → Environments → staging*
 
 These staging environment values provide the public Supabase build configuration instead of production configuration. The workflow validates that the URL matches the staging project reference before building. Do not put privileged Supabase keys into frontend build variables.
 
-**Before pushing the staging workflow changes**, configure `STAGING_CLOUDFLARE_API_TOKEN` and `STAGING_CLOUDFLARE_ACCOUNT_ID` as secrets under **Settings → Environments → staging**, using the intended staging deployment credentials. The caller explicitly passes these staging-specific names, and the reusable workflow declares both required and validates both are non-empty before building/deploying. Missing staging credentials fail closed: there is no fallback to the production-named `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID`. Keep the production secrets unchanged; do not populate repository-level staging-specific names with production credentials.
+Configure `STAGING_CLOUDFLARE_API_TOKEN` and `STAGING_CLOUDFLARE_ACCOUNT_ID` as secrets under **Settings → Environments → staging**, using the intended staging deployment credentials. The caller references these staging-specific names, and the reusable workflow requires both and validates nonblank values before building or deploying. Missing staging credentials fail closed. Keep production credentials in their dedicated environment and out of staging secret entries.
 
 Cloudflare credentials are scoped to the configuration-validation step's environment and the deployment action's inputs; checkout, setup, dependency installation, and frontend build do not inherit them. The deploy job has a 10-minute timeout and the smoke job has a 5-minute timeout. The shared smoke script has a maximum request/retry budget of about 114 seconds across three checks, leaving time for checkout, setup, and artifact upload.
 
@@ -455,10 +456,10 @@ Before enabling the new checks, the DevOps owner and backend owner must:
 
 The new variables are non-secret configuration. Existing staging variables and
 Cloudflare staging secrets above remain required and must be environment-scoped.
-Production continues using its existing repository `VITE_SUPABASE_URL`,
+Production uses repository variables `VITE_SUPABASE_URL`,
 `VITE_SUPABASE_PUBLISHABLE_KEY` (or legacy `VITE_SUPABASE_ANON_KEY`),
-`SUPABASE_PROJECT_REF`, `SUPABASE_ACCESS_TOKEN`, `CLOUDFLARE_API_TOKEN`, and
-`CLOUDFLARE_ACCOUNT_ID`. No new GitHub secrets are required. The verifier pins
+and `SUPABASE_PROJECT_REF`, alongside the
+[dedicated release secrets](#8-deployment-credentials). The verifier pins
 staging to `pjeykhjzqhryjwuoizgh` and production to `config.toml`'s project,
 `gtbwblxskctpsqhbpebg`. Missing revision/origin configuration fails preflight
 before deployment; there is no production fallback for staging.
@@ -780,23 +781,22 @@ The smoke check verifies the runtime schema and demo-row state required by the `
 
 ## 8. Deployment Credentials
 
-GitHub Actions uses the following repository secrets:
+In **Repository → Settings → Environments → production-release → Environment secrets**,
+configure the following required inputs for the main-only release job:
 
-| Secret                  | Purpose                                  |
-| :---------------------- | :--------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`  | Authorizes Cloudflare Worker deployment  |
-| `CLOUDFLARE_ACCOUNT_ID` | Identifies the target Cloudflare account |
-| `SUPABASE_ACCESS_TOKEN` | Authorizes Supabase CLI deployment        |
+| Secret | Purpose |
+| --- | --- |
+| `PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN` | Account-owned token with Individual Workers Editor access to `moris-mix-ai` |
+| `PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID` | Identifies the account that owns the production Worker |
+| `PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN` | Authorizes production Edge Function deployment and conditional migration-history reads |
 
 The `SUPABASE_PROJECT_REF` repository variable identifies the Supabase target and must match `project_id` in `supabase/config.toml`. CI also checks that `VITE_SUPABASE_URL` targets the same project before deploying.
 
-Secrets are managed in:
-
-GitHub Repository → Settings → Secrets and variables → Actions
+Use the environment secret location above. The dedicated names should have no
+repository or organization fallback. See the [backup runbook](database-backup-restore.md#credentials-and-configuration)
+for the separate `production-backup` inputs.
 
 Secret values must never be committed to Git, included in pull request descriptions, printed in CI logs, or shared in screenshots.
-
-The Cloudflare API token is restricted to the intended Cloudflare account.
 
 ## 9. Automated Deployment Procedure
 
@@ -828,8 +828,8 @@ Reviewed changes merged into `main` trigger Modular Main Validation; permitted
 manual dispatch on `main` follows the same production path:
 
 1. Run required frontend, database, Edge/API, and mandatory Hosted RLS validation. Confirm every `production.needs` job succeeded and frontend existence is true. Playwright E2E runs separately and is not in the production dependency list or the required PR contexts.
-2. Validate production deployment configuration, including the Supabase token and project reference.
-3. Install frontend dependencies and build the frontend.
+2. Check all three `production-release` secrets for nonblank values before checkout. Validate the Supabase project reference and production deployment configuration.
+3. Install frontend dependencies and build the frontend. After the stale-main check, the read-only Cloudflare preflight confirms that the account-owned token is active and that the enabled `moris-mix-ai` Worker exposes the bare HTTPS origin configured in `PRODUCTION_FRONTEND_URL`. Authentication, metadata, or URL failure stops the job before any Supabase or Cloudflare write. When enabled, the recipe image prerequisite check also runs before deployment.
 4. Deploy the explicit `recipes` Edge Function target.
 5. Skip the explicit `account-export` target; its workflow step is `if: false` pending BE-16 acceptance gates.
 6. Deploy the explicit `extract-recipe` Edge Function target.
@@ -981,12 +981,17 @@ Checks must only be marked complete after actual execution and verification.
 
 The DevOps role owns execution and enforcement of the quality gate. The relevant application developer remains responsible for fixing failures in their application code.
 
-### Deployment Fails During Wrangler Execution
+### Production Cloudflare Preflight or Wrangler Failure
 
-- Inspect the deployment job logs.
+- Start with `Verify production Cloudflare Worker URL`. For preflight failures,
+  check the two Cloudflare secret names under `production-release`, token status,
+  Worker-scoped access, the enabled Worker URL, and `PRODUCTION_FRONTEND_URL`.
+  Keep credential values and authenticated response bodies out of diagnostics.
+- If preflight succeeded and Wrangler failed, inspect the individual deploy
+  outcomes and provider state. Earlier Supabase writes may already have succeeded.
 - Verify that the frontend build generated `frontend/dist/`.
 - Confirm the Worker name and asset directory match `wrangler.jsonc`.
-- Check that the Cloudflare API token and account ID are correctly configured.
+- Check the dedicated Cloudflare inputs listed in [Deployment Credentials](#8-deployment-credentials).
 - Verify that the token still has the required deployment permissions.
 - Confirm the deployment originated from `main`.
 
@@ -1036,6 +1041,12 @@ A green workflow alone is not sufficient evidence of successful deployment.
 Do not perform any production drill based solely on this written plan. Follow issue #165's explicit authorization and owner-coordination requirements first.
 
 ### Alternative provider rollback
+
+A failed Cloudflare preflight occurs before provider mutations, so that attempt
+requires no provider rollback. Correct the credential or origin configuration
+before an authorized rerun on current main. If a later step failed, establish
+which writes actually succeeded before choosing a recovery action. A corrective
+main release uses the same protected credentials and preflight.
 
 Cloudflare deployment history may offer a frontend rollback, but it is **not** the default proven recovery mechanism. Before relying on it, investigate permission requirements, backend/frontend source pairing, deployment provenance, concurrency and normal GitHub release behavior in a separate controlled exercise. Never present a historical frontend rollback as proof that Supabase functions or database state were restored.
 

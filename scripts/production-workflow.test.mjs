@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { getCACertificates } from 'node:tls';
 import { getSupabaseDatabaseCaCertificates, getSupabaseDatabaseConnection } from './supabase-database-target.mjs';
+import { verifyProductionWorkerUrl } from './verify-production-worker-url.mjs';
 
 // Use the YAML parser already installed with the locked frontend ESLint tooling.
 const require = createRequire(import.meta.url);
@@ -15,6 +16,11 @@ const workflow = name => load(readFileSync(`.github/workflows/${name}.yml`, 'utf
 const main = workflow('modular-main');
 const production = workflow('reusable-production');
 const release = production.jobs.deploy;
+const releaseSecrets = {
+  PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN: '${{ secrets.PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN }}',
+  PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN: '${{ secrets.PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN }}',
+  PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID: '${{ secrets.PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID }}',
+};
 const edge = workflow('reusable-edge-api');
 const scheduledCleanup = workflow('recipe-image-upload-cleanup');
 const recipeImageReadiness = main.jobs['recipe-image-readiness'];
@@ -162,8 +168,39 @@ test('modular PR remains PR-only, with staging and no production call or credent
   for (const job of Object.values(pr.jobs)) {
     assert.notEqual(job.uses, './.github/workflows/reusable-production.yml');
     assert.notEqual(job.uses, './.github/workflows/reusable-cloudflare.yml');
-    for (const name of Object.keys(job.secrets ?? {})) {
-      assert.ok(!['SUPABASE_ACCESS_TOKEN', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'].includes(name));
+    assert.doesNotMatch(JSON.stringify(job), /\b(?:PRODUCTION_(?:RELEASE|BACKUP)_\w+|SUPABASE_ACCESS_TOKEN|SUPABASE_DB_PASSWORD|CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID)\b/);
+  }
+});
+
+test('production deployment requires environment-scoped credentials before any deploy steps', () => {
+  assert.equal(release.environment, 'production-release');
+  assert.equal(main.jobs.production.environment, undefined);
+  assert.equal(main.jobs.production.secrets, undefined);
+  assert.equal(production.on.workflow_call.secrets, undefined);
+  assert.doesNotMatch(JSON.stringify(release), /secrets\.(?:SUPABASE_ACCESS_TOKEN|CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID)\b/);
+
+  const preflight = step(release, 'Validate production release credentials');
+  assert.deepEqual(preflight.env, releaseSecrets);
+  assert.equal(release.steps[0], preflight);
+  const keys = Object.keys(releaseSecrets);
+  const testEnv = {
+    ...process.env,
+    SUPABASE_ACCESS_TOKEN: 'legacy-test-only',
+    CLOUDFLARE_API_TOKEN: 'legacy-test-only',
+    CLOUDFLARE_ACCOUNT_ID: 'legacy-test-only',
+    ...Object.fromEntries(keys.map(key => [key, 'new-test-only'])),
+  };
+  const check = overrides => spawnSync('bash', ['-c', preflight.run], {
+    encoding: 'utf8', env: { ...testEnv, ...overrides },
+  });
+  const configured = check({});
+  assert.equal(configured.status, 0, configured.stderr);
+  for (const key of keys) {
+    for (const value of ['', ' \t ']) {
+      const rejected = check({ [key]: value });
+      assert.equal(rejected.status, 1, rejected.stderr);
+      assert.ok(rejected.stdout.includes(`Configure the ${key} secret in the production-release environment.`));
+      assert.doesNotMatch(rejected.stdout, /test-only/);
     }
   }
 });
@@ -242,8 +279,8 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_PUBLIC_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY || vars.VITE_SUPABASE_ANON_KEY }}',
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
-  const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend',
-    'Reject stale production revision', 'Verify recipe image release prerequisites', 'Deploy recipes Edge Function',
+  const ordered = ['Validate production release credentials', 'Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend',
+    'Reject stale production revision', 'Verify production Cloudflare Worker URL', 'Verify recipe image release prerequisites', 'Deploy recipes Edge Function',
     'Deploy account-export Edge Function',
     'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function', 'Deploy recipe-image-attach Edge Function',
     'Deploy recipe-image-download-url Edge Function', 'Deploy recipe image upload cleanup Edge Function',
@@ -266,7 +303,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     RECIPE_IMAGE_CLEANUP_ENABLED: "${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' && 'true' || 'false' }}",
     PRODUCTION_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
     VERIFIED_PRODUCTION_ORIGIN: '${{ inputs.verified-production-origin }}',
-    SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}',
+    SUPABASE_ACCESS_TOKEN: releaseSecrets.PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN,
     SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
   });
   const commands = release.steps.map(s => s.run ?? '').join('\n');
@@ -284,13 +321,22 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.doesNotMatch(commands, /db push|migration up|run-migrations|db:setup/);
   assert.doesNotMatch(commands, /secrets set|AI_EXTRACT_ENABLED|AI_GENERATE_ENABLED|GEMINI_API_KEY|AI_CANDIDATE_TOKEN_SECRET/);
   const configuration = step(release, 'Validate production deployment configuration');
-  assert.deepEqual(configuration.env, {
-    SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}',
-    SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
-  });
+  assert.deepEqual(configuration.env, { SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}' });
+  const supabaseDeploymentEnvironment = {
+    ...configuration.env,
+    SUPABASE_ACCESS_TOKEN: releaseSecrets.PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN,
+  };
   assert.match(configuration.run, /configuration\(process\.env\)/);
+  const workerPreflight = step(release, 'Verify production Cloudflare Worker URL');
+  assert.equal(workerPreflight.run, 'node scripts/verify-production-worker-url.mjs');
+  assert.deepEqual(workerPreflight.env, {
+    PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN: releaseSecrets.PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN,
+    PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID: releaseSecrets.PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID,
+  });
+  assert.equal(workerPreflight.if, undefined);
+  assert.equal(workerPreflight['continue-on-error'], undefined);
   for (const guard of ['VITE_SUPABASE_URL', 'VITE_SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY',
-    'SUPABASE_ACCESS_TOKEN', 'SUPABASE_PROJECT_REF', 'supabase/config.toml',
+    'SUPABASE_PROJECT_REF', 'supabase/config.toml',
     'https://${SUPABASE_PROJECT_REF}.supabase.co']) assert.ok(configuration.run.includes(guard), guard);
   const install = step(release, 'Install frontend dependencies');
   assert.equal(install['working-directory'], 'frontend');
@@ -305,7 +351,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     const deploy = step(release, `Deploy ${target} Edge Function`);
     assert.equal(deploy.id, `deploy-${target}`);
     assert.equal(deploy['working-directory'], 'frontend');
-    assert.deepEqual(deploy.env, configuration.env);
+    assert.deepEqual(deploy.env, supabaseDeploymentEnvironment);
     assert.ok(deploy.run.includes(`pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy ${target}`));
     assert.match(deploy.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
     assert.match(deploy.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
@@ -314,14 +360,19 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const cleanup = step(release, 'Deploy recipe image upload cleanup Edge Function');
   assert.equal(cleanup.id, 'deploy-recipe-image-cleanup');
   assert.equal(cleanup['working-directory'], 'frontend');
-  assert.deepEqual(cleanup.env, configuration.env);
+  assert.deepEqual(cleanup.env, supabaseDeploymentEnvironment);
   assert.match(cleanup.run, /--workdir "\$GITHUB_WORKSPACE" functions deploy recipe-image-upload-cleanup/);
   assert.match(cleanup.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
   assert.match(cleanup.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
   assert.doesNotMatch(cleanup.run, /--prune|--all|latest|npx/);
   assert.equal(step(release, 'Deploy to Cloudflare Workers').id, 'deploy-cloudflare');
-  assert.equal(step(release, 'Deploy to Cloudflare Workers').uses, 'cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd');
-  assert.equal(step(release, 'Deploy to Cloudflare Workers').with.command, 'deploy --config wrangler.jsonc');
+  assert.equal(step(release, 'Deploy to Cloudflare Workers').uses, 'cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0');
+  assert.deepEqual(step(release, 'Deploy to Cloudflare Workers').with, {
+    apiToken: releaseSecrets.PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN,
+    accountId: releaseSecrets.PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID,
+    wranglerVersion: '4.168.0',
+    command: 'deploy --config wrangler.jsonc',
+  });
   const verify = step(release, 'Verify production deployment URL');
   assert.equal(verify.id, 'verify-deployment');
   assert.equal(verify.env.DEPLOYMENT_URL, '${{ steps.deploy-cloudflare.outputs.deployment-url }}');
@@ -370,9 +421,47 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   for (const name of Object.keys(summary.env)) assert.ok(summary.run.includes('${' + name + '}'), name);
   assert.deepEqual(release.concurrency, { group: 'cloudflare-production', 'cancel-in-progress': false, queue: 'max' });
   assert.deepEqual(release.permissions, { contents: 'read' });
-  for (const caller of [main.jobs.production]) {
-    assert.deepEqual(Object.keys(caller.secrets).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN']);
-    for (const [key, value] of Object.entries(caller.secrets)) assert.equal(value, '${{ secrets.' + key + ' }}');
+});
+
+test('production Worker URL preflight authenticates and fails closed', async t => {
+  const env = {
+    PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32),
+    PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN: 'invalid-test-token',
+    SMOKE_FRONTEND_URL: 'https://production.example',
+  };
+  const accountUrl = 'https://api.cloudflare.com/client/v4/accounts/' + env.PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID;
+  const active = { success: true, result: { status: 'active' } };
+  const worker = url => ({ success: true, result: { name: 'moris-mix-ai', subdomain: { enabled: true, url } } });
+  const expectedWorker = worker('https://PRODUCTION.EXAMPLE:443/');
+  const cases = [
+    ['matching HTTPS origin', active, expectedWorker, undefined],
+    ['authentication failure', 401, expectedWorker, 'Cloudflare production token authentication failed.'],
+    ['inactive token', { success: true, result: { status: 'disabled' } }, expectedWorker, 'Cloudflare production token authentication failed.'],
+    ['malformed Worker response', active, 'private upstream response', 'Cloudflare production Worker metadata is invalid or unavailable.'],
+    ['unexpected Worker', active, { success: true, result: { ...expectedWorker.result, name: 'other-worker' } }, 'Cloudflare production Worker metadata is invalid or unavailable.'],
+    ['missing URL', active, worker(undefined), 'Cloudflare production Worker has no valid HTTPS origin.'],
+    ['non-HTTPS URL', active, worker('http://production.example'), 'Cloudflare production Worker has no valid HTTPS origin.'],
+    ['mismatched URL', active, worker('https://staging.example'), 'Cloudflare Worker URL does not match PRODUCTION_FRONTEND_URL.'],
+  ];
+  for (const [name, authentication, metadata, message] of cases) {
+    await t.test(name, async () => {
+      const calls = [];
+      const request = async (url, options) => {
+        calls.push(url);
+        assert.equal(options.headers.Authorization, 'Bearer invalid-test-token');
+        assert.equal(options.method ?? 'GET', 'GET');
+        assert.equal(options.redirect, 'error');
+        const body = calls.length === 1 ? authentication : metadata;
+        if (typeof body === 'number') return new Response('private upstream response', { status: body });
+        return typeof body === 'string' ? new Response(body) : Response.json(body);
+      };
+      const result = verifyProductionWorkerUrl(env, request);
+      if (message) await assert.rejects(result, { message });
+      else await result;
+      const expected = [accountUrl + '/tokens/verify'];
+      if (authentication === active) expected.push(accountUrl + '/workers/workers/moris-mix-ai');
+      assert.deepEqual(calls, expected);
+    });
   }
 });
 
