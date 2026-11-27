@@ -12,7 +12,8 @@ import { useJournalMedia } from './useJournalMedia'
 import '../pages/recipeRevisionSample.css'
 
 export function JournalRouteLoading({ message }: { message: string }) {
-  const { pathname, search } = useLocation()
+  const { pathname: routePath, search } = useLocation()
+  const pathname = routePath.replace(/\/+$/, '') || '/'
   const desktop = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
   const pantryBoard = useJournalMedia('(min-width: 1100px) and (min-height: 640px) and (pointer: fine)')
   if (pathname === '/demo-recipe' || /^\/app\/recipes\/[^/]+$/.test(pathname) && !pathname.endsWith('/new')) {

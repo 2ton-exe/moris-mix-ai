@@ -187,11 +187,16 @@ try {
       ['chef-review', '/app/chef/review', 'ai-chef/ChefRecipeReviewPage.tsx'],
       ['revision-sample', '/demo-recipe/try-a-revision', 'pages/RecipeRevisionSamplePage.tsx'],
       ['missing-page', '/missing-page', 'pages/PublicJournalPages.tsx'],
+      ['new-slash', '/app/recipes/new/', 'pages/CreateRecipePage.tsx'],
+      ['notes-review-slash', '/app/quick-entry/review/', 'quick-ai/ExtractedRecipeReviewPage.tsx'],
+      ['chef-review-slash', '/app/chef/review/', 'ai-chef/ChefRecipeReviewPage.tsx'],
+      ['revision-sample-slash', '/demo-recipe/try-a-revision/', 'pages/RecipeRevisionSamplePage.tsx'],
     ]
     for (const [width, height] of [[1470, 803], [1280, 720], [1100, 640]]) {
-      for (const [name, routePath, modulePath] of coldRoutes.filter(([name]) => !process.env.MORI_COLD_ROUTES || process.env.MORI_COLD_ROUTES.split(',').includes(name))) {
+      for (const [caseName, routePath, modulePath] of coldRoutes.filter(([name]) => !process.env.MORI_COLD_ROUTES || process.env.MORI_COLD_ROUTES.split(',').includes(name))) {
+        const name = caseName.replace(/-slash$/, '')
         const context = await browser.newContext({ viewport: { width, height } })
-        const stamp = width === 1470 ? `cold-${name}` : `cold-${name}-${width}`
+        const stamp = width === 1470 ? `cold-${caseName}` : `cold-${caseName}-${width}`
         const page = await context.newPage()
         if (routePath.startsWith('/app')) await preparePage(page)
         if (name === 'notes-review') await page.addInitScript(({ userId, recipe }) => {
@@ -271,6 +276,15 @@ try {
           await expect(reference).toHaveAttribute('aria-hidden', 'true')
           loadingReference = await reference.boundingBox()
         }
+        const assertRouteFrame = async () => {
+          if (!caseName.endsWith('-slash')) return
+          if (name === 'revision-sample') await expect(page.locator('.mm-journal-page')).toHaveClass(/mm-revision-sample-sheet/)
+          else {
+            await expect(page.locator('.mm-desk')).toHaveClass(/mm-desk--writing/)
+            await expect(page.locator('.mm-desk').locator('..')).toHaveClass(name === 'new' ? /mm-new-recipe/ : /mm-recipe-review/)
+          }
+        }
+        await assertRouteFrame()
         await page.screenshot({ path: path.join(output, `${stamp}-loading.png`) })
         if (name === 'collection') {
           await page.getByRole('button', { name: 'Talk to Mori' }).click()
@@ -280,6 +294,7 @@ try {
         await expect(page.locator('.mm-skeleton-line, .mm-skeleton-block')).toHaveCount(0)
         await page.waitForTimeout(200)
         await page.screenshot({ path: path.join(output, `${stamp}-loaded.png`) })
+        await assertRouteFrame()
         if (loadingWriting) {
           const loadedWriting = await page.evaluate(measureWritingLayout, name)
           for (const [field, loading] of Object.entries(loadingWriting)) {
@@ -330,7 +345,7 @@ try {
         assert.ok(geometry.documentWidth <= width + 2, `${name}: horizontal overflow at ${width}`)
         assert.ok(geometry.documentHeight <= height + 2, `${name}: document overflow at ${width}×${height}: ${geometry.documentHeight}`)
         if (name === 'home' || name === 'about') await assertJournalSemantics(page, name)
-        results.push({ name, width, height, coldRoute: routePath, sameBook, ...geometry })
+        results.push({ name: caseName, width, height, coldRoute: routePath, sameBook, ...geometry })
         await context.close()
         globalThis.console.log(`${stamp}: preserved shell`)
       }

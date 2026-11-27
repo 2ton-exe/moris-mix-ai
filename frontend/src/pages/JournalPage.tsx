@@ -9,7 +9,8 @@ import type { JournalLogoutGuard } from '../journal/JournalLogoutGuardContext'
 
 // Shared authenticated journal shell, including logout on detail/error screens.
 export default function JournalPage() {
-  const { pathname } = useLocation()
+  const { pathname: routePath } = useLocation()
+  const pathname = routePath.replace(/\/+$/, '') || '/'
   const writing = /\/recipes\/(?:new|[^/]+\/edit)\/?$/.test(pathname) || pathname.endsWith('/review')
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const reviewing = pathname.endsWith('/review')

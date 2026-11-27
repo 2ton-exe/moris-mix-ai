@@ -45,7 +45,8 @@ const AboutPage = lazy(() => import('./pages/PublicJournalPages').then(({ AboutP
 const NotFoundPage = lazy(() => import('./pages/PublicJournalPages').then(({ NotFoundPage }) => ({ default: NotFoundPage })))
 
 function PublicJournalFrame() {
-  const { pathname } = useLocation()
+  const { pathname: routePath } = useLocation()
+  const pathname = routePath.replace(/\/+$/, '') || '/'
   const demo = pathname.startsWith('/demo-recipe')
   return <JournalShell publicNavigation mode={demo ? 'demo' : 'journal'}
     pageClassName={pathname.endsWith('/try-a-revision') ? 'mm-revision-sample-sheet' : demo ? 'mm-demo-sheet' : 'mm-public-page'}><Outlet /></JournalShell>
