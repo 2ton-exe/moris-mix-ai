@@ -227,7 +227,9 @@
     background: var(--mm-color-fresh) var(--mm-tex-grain);
     box-shadow: var(--mm-shadow-paper);
   }
-  .mori-pet-panel[data-dialogue] > header { flex: none; padding-block-end: var(--mm-space-2); }
+  .mori-pet-panel[data-dialogue] > header { flex: none; min-block-size: calc(44px + var(--mm-space-2)); padding-block-end: var(--mm-space-2); }
+  .mori-pet-panel[data-dialogue] .mori-pet-close { position: absolute; inset-block-start: var(--mm-space-4); inset-inline-end: 48px; }
+  .mori-pet-bubble:has([data-dialogue]) > .mori-pet-resize { inset-block-start: var(--mm-space-4); place-items: center; }
   .mori-pet-panel[data-dialogue] h2 { color: var(--mm-color-burgundy-800); font-size: 28px; }
   .mori-pet-panel[data-dialogue] .mori-chat,
   .mori-pet-panel[data-dialogue] .mori-chat-conversation { flex: 0 1 auto; gap: var(--mm-space-2); }
@@ -256,7 +258,7 @@
   .mori-pet-panel[data-dialogue] .mori-chat-composer:focus-within { outline: 2px solid var(--mm-color-burgundy-600); outline-offset: 2px; }
   .mori-pet-panel[data-dialogue] .mori-chat-composer textarea:focus-visible { outline: none; }
   .mori-pet-panel[data-dialogue] .mori-chat-hint { display: none; margin: 0; font-size: 11px; color: var(--mm-color-ink-soft); }
-  .mori-pet-panel[data-dialogue]:has(.mori-chat-composer:focus-within) .mori-chat-hint { display: block; }
+  .mori-pet-panel[data-dialogue] .mori-chat[data-empty='true'] .mori-chat-hint { display: block; }
   .mori-chat-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--mm-space-2); align-items: start; }
   .mori-chat-tools > .mori-chat-quick-prompts { grid-column: 1 / -1; }
   .mori-chat-tools > details[open] { grid-column: 1 / -1; }
