@@ -1,0 +1,10 @@
+Revision save regression passed at 1440×900: edited preview, immediate save, lineage, actual copy/original reopen, no duplicate or original PATCH.
+Revision save regression passed at 1100×640: edited preview, immediate save, lineage, actual copy/original reopen, no duplicate or original PATCH.
+AI Chef browser acceptance Scenario A passed: keyboard-selected parents, recipe-first save, and confirmed lineage completion.
+AI Chef browser acceptance Scenario B passed: recipe-only save, cleared-handoff storage retry, and same-recipe update after recovery.
+AI Chef browser acceptance Scenario C passed: partial save, saved-ID draft recovery, GET reconciliation and lineage-only retry.
+AI Chef browser acceptance Scenario D passed: expired authorization renews links on the same saved recipe without regeneration.
+AI Chef browser acceptance Scenario E passed: lost lineage response reconciled through GET without a duplicate POST.
+FE-13 generation failure: server cooldown, retained inputs, same-request retry and unsaved preview passed.
+AI Chef recovery passed: manual continuation carried pantry items into the editable recipe form.
+AI Chef overflow review passed: complete detail lists, selection, and return to the pantry.

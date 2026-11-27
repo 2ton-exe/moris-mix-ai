@@ -6,7 +6,7 @@
 
 **Klein Rhee P. Sioson** – AI Engineer; **Joseph Andrew Y. Ong** – Frontend Engineer; **Daniel C. Ramos** – Backend Engineer; **Yuan Paulo Sebastian M. Belen** – Full-Stack Engineer; **Diofel Gwen F. Haresco** – DevOps Engineer.
 
-**Release:** designation pending DevOps. **PA:** `5cad4b8`/`05c9b32`; **local source:** `d329285`; **docs:** #293 on `60f580f`. [Repository](https://github.com/2ton-exe/moris-mix-ai) · [Production](https://moris-mix-ai.diofelgwenharesco.workers.dev) · [Revision identities and current evidence](README.md).
+**Release:** designation pending DevOps. **PA:** `5cad4b8`/`05c9b32`; **local:** `d329285`, repair `40b5e10` (#308); **docs:** #293. [Repository](https://github.com/2ton-exe/moris-mix-ai) · [Production](https://moris-mix-ai.diofelgwenharesco.workers.dev) · [Revision identities and current evidence](README.md).
 
 ### 1 Product status & architecture
 
@@ -37,7 +37,7 @@ Authenticated POST/GET/PATCH/DELETE `/recipes` and `/recipes/:id` implement CRUD
 
 ### 4 AI feature: design, output processing & evidence
 
-Quick AI Entry extracts ingredients and ordered steps from notes. Chef ranks owned recipes by normalized ingredient overlap, rating and recency, then supplies bounded context with pantry/preferences. Prompts are extraction 1.0.0, Chef 1.1.0 and revision 1.0.0. Gemini JSON is parsed, normalized, schema-checked and checked for substitution/parent membership; note revisions also require one verifiable amount change. The UI receives an editable preview. Explicit recipe save and lineage save are separate operations with recovery for partial success. [AI contract](https://github.com/2ton-exe/moris-mix-ai/blob/d329285ce0be5e955ee6ac76751cf97f6e58f799/docs/api/ai-integration.md).
+Quick AI Entry extracts ingredients and ordered steps from notes. Chef ranks owned recipes by normalized ingredient overlap, rating and recency, then supplies bounded context with pantry/preferences. Prompts are extraction 1.1.0, Chef 1.2.0 and revision 1.0.0. Gemini JSON is parsed, normalized, schema-checked and checked for substitution/parent membership; note revisions also require one verifiable amount change. The UI receives an editable preview. Explicit recipe save and lineage save are separate operations with recovery for partial success. [AI contract](https://github.com/2ton-exe/moris-mix-ai/blob/d329285ce0be5e955ee6ac76751cf97f6e58f799/docs/api/ai-integration.md).
 
 Code defaults include 20 logical operations/account/UTC day and bounded burst controls; optional shared provider ceilings count attempts separately. Each provider attempt has a 30-second timeout and at most one bounded retry. Invalid output returns a typed error; failure retains input for retry/manual entry and writes no recipe/lineage. Operational settings, provider eligibility and food safety are not established by these guards. [Provider/quota source](https://github.com/2ton-exe/moris-mix-ai/tree/d329285ce0be5e955ee6ac76751cf97f6e58f799/supabase/functions/_shared/ai).
 
@@ -54,7 +54,7 @@ Verified JWTs, owner-scoped queries/RLS and backend-only quota/image operations 
 | Focused local source, 27 Nov | At `d329285`: 447 Edge/API passed, 0 failed, 5 environment-dependent cases ignored; frontend invocations passed 489 and 66 distinct focused cases. Eight revision diagnostic tests passed separately; no full-suite sum claimed. [Exact commands/runs](compilation-record.md#verification-record). |
 | Local persistence / browser | Disposable PostgreSQL 16: 13 migration scenarios and 137 RLS assertions passed. Chef happy path passed at two desktop sizes; lineage failure/reload/retry passed. Synthetic transport is separate from real SQL checks and establishes no hosted-DB acceptance. [Run record](compilation-record.md#verification-record). |
 | Production acceptance | PA-20261127: AUTH-01, CRUD-01, DUR-01, AI-EX-01 and app-level R2-01 passed; Chef and revision end-to-end failed; R2-02 partial. Tests belong to `5cad4b8`/`05c9b32`, not later main. [Report](assets/PA-20261127.md). |
-| Known defects / proof limits | Local failures: legacy unit aliases reject a valid oil revision; an unsettled post-save review can enter a measurement loop. Settled linked-copy reopen passed. PA causes remain unknown. See the [repair proposal](outstanding-confirmations.md#application-repair-proposal). |
+| Repair / proof limits | Unmerged [#308](https://github.com/2ton-exe/moris-mix-ai/pull/308), `40b5e10`: 63 generation and 53 RecipePages tests pass; revision save/reopen passes at two desktop sizes. Wider frontend attempt: one timeout. PA failures remain unaccepted; exact-target semantics limited. [Repair runs](compilation-record.md#repair-follow-up-verification). |
 
 ### 7 Engineering process & CI/CD
 
@@ -84,7 +84,7 @@ myntchoc supplied the grouped development-tool and Figma/Codex asset declaration
 
 The consolidated register separates behavior failures, missing originals, missing media, factual declarations and access gaps. Original Endterm instructions and pitch/plan copies were found; instructor-approved pitch identity, original standups/retros and some consultation details remain unestablished. Missing PA screenshots, panel permissions, final release designation, required DevOps proof and final PDF/Google Doc submission remain open. [Questions and DevOps dependencies](outstanding-confirmations.md).
 
-Next: decide the narrow local repair proposal and close the named evidence/access gaps. Optional export/account deletion, #274 and vector search are outside this work; they are not added as new submission gates. No new approval, production test, deployment or 100% readiness is claimed. [Current decisions](README.md#current-evidence).
+Next: review the updated brief and close the named evidence/access gaps; local repairs are verified separately in #308. Optional export/account deletion, #274 and vector search are outside this work; they are not added as new submission gates. No new approval, production test, deployment or 100% readiness is claimed. [Current decisions](README.md#current-evidence).
 
 ### 10 Reviewer evidence index
 

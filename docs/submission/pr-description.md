@@ -12,7 +12,8 @@ Reconcile the submission brief with PA-20261127 and current source while keeping
 ## Testing performed
 
 - Current-main `d329285`: 447 focused Edge/API tests passed, 5 hosted-dependent tests ignored; frontend runs passed 489 and 66 separate focused cases. Disposable PostgreSQL: 13 migration scenarios and 137 RLS assertions passed.
-- Deterministic Chef save/reopen and lineage recovery passed. Exact-note revision has a passing settled-layout save/reopen control, plus retained failing legacy-unit and timing-dependent post-save diagnostics. One concrete follow-up repair proposal; no application fix applied.
+- Deterministic Chef save/reopen and lineage recovery passed. Exact-note revision has a passing settled-layout save/reopen control, plus retained failing legacy-unit and timing-dependent post-save diagnostics. The two local defects are now repaired in separate, unmerged PR #308 (`40b5e10`) and independently verified; historical failures remain preserved. No application fix is included in #293.
+- Repair follow-up: 63 generation tests, the overlapping 4 endpoint regressions, and original 3-case alias probe pass. 53 RecipePages tests, TypeScript and the synthetic Chef browser runner pass (9 journeys / 10 executions, including revision at two sizes). An inadvertently broad frontend run had 1,014 passes/1 timeout; the isolated AI Chef rerun passed 47/47. Counts overlap and are not summed; no production claim. Q6 now covers final document approval only.
 - PR-tree typecheck/build, texture/hash/notice checks, board preservation and three-page rendering checked. Exact commands, runtimes, dirty state, failed attempts and limitations are in [compilation-record.md](https://github.com/2ton-exe/moris-mix-ai/blob/docs/submission-evidence/docs/submission/compilation-record.md#verification-record). Prior `60f580f` CI is labeled separately; overlapping totals are not added.
 
 ## Related GitHub issue
