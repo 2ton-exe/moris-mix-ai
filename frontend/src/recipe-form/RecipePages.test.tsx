@@ -20,6 +20,7 @@ import { RecipeQueryProvider } from '../recipes/RecipeQueryProvider'
 import { JournalLogoutGuardContext, type JournalLogoutGuard } from '../journal/JournalLogoutGuardContext'
 import type { RecipeEditorRecord, SaveRecipeDraft } from './submission'
 import { recipeFormFixture } from './testing/fixtures'
+import { recipeFormApi } from './api'
 
 const draft = { ...recipeFormFixture, notes: '' }
 const NativeRequest = globalThis.Request
@@ -545,4 +546,18 @@ it('drops an old-account edit record immediately when the account changes', () =
   view.rerender(tree({ path: '/app/recipes/recipe-a/edit', initial: record(), state: authState('cook-b') }))
   expect(screen.queryByDisplayValue(draft.title)).toBeNull()
   expect(screen.queryByLabelText('Recipe title')).toBeNull()
+})
+
+it('keeps the displayed edit baseline across background refreshes and advances it after its own save', async () => {
+  const initial = { ...record(), updatedAt: '2026-11-26T00:00:00Z' }
+  const firstSaved = { ...initial, values: { ...draft, title: 'My title edit' }, updatedAt: '2026-11-27T05:00:00Z' }
+  const persist = vi.spyOn(recipeFormApi, 'save').mockResolvedValue({ id: initial.id, record: firstSaved })
+  const view = render(tree({ path: '/app/recipes/recipe-a/edit', initial }))
+  title('My title edit')
+  view.rerender(tree({ path: '/app/recipes/recipe-a/edit', initial: { ...initial, values: { ...draft, notes: 'Another tab cooked this' }, updatedAt: '2026-11-27T04:00:00Z' } }))
+  await act(async () => { click('Save changes') })
+  expect(persist).toHaveBeenNthCalledWith(1, expect.objectContaining({ title: 'My title edit', notes: draft.notes }), expect.anything(), initial.id, initial)
+  title('A second title edit')
+  await act(async () => { click('Save changes') })
+  expect(persist).toHaveBeenNthCalledWith(2, expect.objectContaining({ title: 'A second title edit' }), expect.anything(), initial.id, firstSaved)
 })

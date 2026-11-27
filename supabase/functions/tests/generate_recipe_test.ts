@@ -3301,6 +3301,37 @@ Deno.test("Chef revisions use exact selected evidence and sign only an owned sou
   assertEquals(stale.status, 409);
   assertEquals((await stale.json()).error.code, "REVISION_NOTE_CHANGED");
 
+  for (
+    const [count, text] of [[9, "a".repeat(1000)], [3, "煮".repeat(1000)], [
+      5,
+      '"\\'.repeat(500),
+    ]] as const
+  ) {
+    rows = [{
+      ...source,
+      instructions: Array.from(
+        { length: count },
+        (_, index) => ({ step: index + 1, text }),
+      ),
+    }];
+    const providerCalls = observedContexts.length;
+    const quotaCalls = requests.filter(({ path }) =>
+      path === "/rest/v1/rpc/consume_ai_quota"
+    ).length;
+    const oversized = await revise(salty);
+    assertEquals(oversized.status, 422);
+    assertEquals(
+      (await oversized.json()).error.code,
+      "REVISION_SOURCE_TOO_LARGE",
+    );
+    assertEquals(observedContexts.length, providerCalls);
+    assertEquals(
+      requests.filter(({ path }) => path === "/rest/v1/rpc/consume_ai_quota")
+        .length,
+      quotaCalls,
+    );
+  }
+
   rows = [{ ...source, user_id: FOREIGN_PARENT_ID }];
   assertEquals((await revise(salty)).status, 404);
   rows = [];

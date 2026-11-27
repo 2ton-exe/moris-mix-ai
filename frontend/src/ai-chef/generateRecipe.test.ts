@@ -6,6 +6,7 @@ import {
   createGenerateRecipeApi,
   GENERATE_RECIPE_PATH,
   generateRecipeErrorMessage,
+  revisionErrorMessage,
   generateRecipeRequestSchema,
   generateRecipeResponseSchema,
   InvalidGeneratedRecipeResponse,
@@ -123,4 +124,10 @@ describe('AI Chef request and response contract', () => {
     expect(generateRecipeErrorMessage(new Error('timeout'), true)).toContain('took too long')
     expect(generateRecipeErrorMessage(http(500, 'INTERNAL_ERROR'))).not.toContain('private')
   })
+})
+
+it('explains oversized revisions without suggesting a quota-consuming retry', () => {
+  const error = new HttpError('http', 'Unprocessable', 422, { error: { code: 'REVISION_SOURCE_TOO_LARGE' } })
+  expect(revisionErrorMessage(error)).toContain('You can edit it directly')
+  expect(revisionErrorMessage(error)).toContain('no AI request was used')
 })

@@ -7,7 +7,7 @@ import type { RecipeDraft, RecipeDraftInput } from './draft'
 export interface RecipeSaveConfirmation { id: string; statusMessage?: string }
 export interface RecipeSaveContext { userId: string; signal: AbortSignal; recipeId?: string }
 export type SaveRecipeDraft = (draft: RecipeDraft, context: RecipeSaveContext) => Promise<RecipeSaveConfirmation>
-export interface RecipeEditorRecord { id: string; userId: string; values: RecipeDraftInput }
+export interface RecipeEditorRecord { id: string; userId: string; values: RecipeDraftInput; updatedAt?: string }
 
 export type FieldViolation = { path: string; code: 'required' | 'invalid' | 'too-long' }
 export class RecipeSubmissionError extends Error {

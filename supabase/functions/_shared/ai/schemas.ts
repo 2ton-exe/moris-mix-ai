@@ -56,7 +56,7 @@ export const MAX_AI_OUTPUT_JSON_BYTES = 8 * 1024;
 export const AI_OUTPUT_SIZE_LIMIT_MESSAGE =
   "AI output exceeds the supported JSON byte limit.";
 
-function isWithinAiOutputJsonLimit(value: unknown): boolean {
+export function isWithinAiOutputJsonLimit(value: unknown): boolean {
   const serialized = JSON.stringify(value);
   return typeof serialized === "string" &&
     new TextEncoder().encode(serialized).byteLength <= MAX_AI_OUTPUT_JSON_BYTES;
@@ -264,10 +264,10 @@ export const UpdateRecipeRequestSchema = z.object({
   (data) => Object.keys(data).length > 0,
   { message: "At least one field must be provided for update." },
 ).refine(
-  (data) => data.expected_updated_at === undefined || data.notes !== undefined,
+  (data) => data.expected_updated_at === undefined || data.notes !== undefined || data.cooked_at !== undefined,
   {
     path: ["expected_updated_at"],
-    message: "A recipe version requires a notes update.",
+    message: "A recipe version requires a notes or cooked date update.",
   },
 );
 

@@ -24,11 +24,11 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   const location = useLocation()
   const [dirty, setDirty] = useState(false)
   const query = useRecipe(recipeId, !record && !isLoading && !loadError)
-  const submit = useRecipeSave(save, recipeId)
   const navigationConfirmation = useUnsavedChangesGuard(dirty, { guardLogout: true })
   const loadedRecord = query.data && user?.id ? {
     id: query.data.id,
     userId: user.id,
+    updatedAt: query.data.updated_at,
     values: {
       title: query.data.title,
       ingredients: query.data.ingredients,
@@ -39,6 +39,7 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
     },
   } : undefined
   const activeRecord = record ?? loadedRecord
+  const submit = useRecipeSave(save, recipeId, activeRecord)
   const activeLoading = isLoading || (!record && !loadError && query.isLoading)
   const activeError = loadError ?? (!record ? query.error : undefined)
   const recoveryHeading = useRef<HTMLHeadingElement>(null)

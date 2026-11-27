@@ -160,6 +160,7 @@ export function generateRecipeErrorMessage(error: unknown, timedOut = false) {
 export function revisionErrorMessage(error: unknown, timedOut = false) {
   if (timedOut) return 'Mori took too long to answer. Your selected note is still here.'
   const code = error instanceof HttpError ? httpErrorCode(error) : undefined
+  if (code === 'REVISION_SOURCE_TOO_LARGE') return 'This recipe is too long for a focused revision. You can edit it directly; your saved recipe and notes are unchanged, and no AI request was used.'
   if (code === 'REVISION_NOTE_CHANGED') return 'Your saved notes changed. Reload the recipe and select the note again.'
   if (code === 'NOT_FOUND') return 'The original recipe is unavailable.'
   if (code === 'REVISION_CHANGE_UNSUPPORTED' || code === 'AI_OUTPUT_INVALID' || error instanceof InvalidGeneratedRecipeResponse) {

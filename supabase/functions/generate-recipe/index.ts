@@ -299,6 +299,13 @@ async function handleRequest(
           409,
         );
       }
+      if (revision.status === "too_large") {
+        return errorResponse(
+          "REVISION_SOURCE_TOO_LARGE",
+          "This recipe is too long for a focused revision. Your saved recipe and notes are unchanged.",
+          422,
+        );
+      }
       revisionContext = revision.context;
       input = { pantryItems: [] };
     } else {

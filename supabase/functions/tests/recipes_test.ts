@@ -2332,8 +2332,8 @@ Deno.test("Conditional PATCH preserves notes when a second cook update uses a st
       assertEquals(url.searchParams.get("updated_at"), "eq." + originalVersion);
       if (!exists || recipe.updated_at !== originalVersion) return json([]);
       const update = JSON.parse(String(init.body));
-      assertEquals(Object.keys(update), ["notes"]);
-      recipe = { ...recipe, notes: update.notes, updated_at: newVersion };
+      assertEquals(Object.keys(update), ["notes" in update ? "notes" : "cooked_at"]);
+      recipe = { ...recipe, ...update, updated_at: newVersion };
       return json([recipe]);
     }
     assertEquals(init?.method, "GET");
@@ -2377,6 +2377,16 @@ Deno.test("Conditional PATCH preserves notes when a second cook update uses a st
   });
   assertEquals(stale.status, 409);
   assertEquals((await stale.json()).error.code, "RECIPE_CHANGED");
+  assertEquals(recipe.notes, "Original\n\nFirst cook");
+
+  const staleDate = await update({ cooked_at: "2026-11-27", expected_updated_at: originalVersion });
+  assertEquals(staleDate.status, 409);
+  assertEquals((await staleDate.json()).error.code, "RECIPE_CHANGED");
+
+  recipe = { ...recipe, updated_at: originalVersion };
+  const savedDate = await update({ cooked_at: "2026-11-27", expected_updated_at: originalVersion });
+  assertEquals(savedDate.status, 200);
+  assertEquals((await savedDate.json()).recipe.cooked_at, "2026-11-27");
   assertEquals(recipe.notes, "Original\n\nFirst cook");
 
   exists = false;

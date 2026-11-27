@@ -2,6 +2,7 @@ import type { AuthContext } from "../auth.ts";
 import type { GeneratedRevision } from "./AIProvider.ts";
 import { normalizeIngredientName } from "./recipeContext.ts";
 import {
+  isWithinAiOutputJsonLimit,
   type RecipeRevisionRequest,
   type RecipeRevisionSummary,
   RecipeSchema,
@@ -32,6 +33,7 @@ export async function loadRecipeRevisionContext(
   | { status: "ready"; context: RecipeRevisionContext }
   | { status: "not_found" }
   | { status: "stale_note" }
+  | { status: "too_large" }
 > {
   const { data, error } = await auth.supabase.from("recipes")
     .select("id,user_id,title,ingredients,instructions,notes,star_rating")
@@ -49,6 +51,18 @@ export async function loadRecipeRevisionContext(
     return { status: "not_found" };
   }
   if (!notes?.includes(request.noteExcerpt)) return { status: "stale_note" };
+  if (
+    !isWithinAiOutputJsonLimit({
+      recipe: {
+        title: source.title,
+        ingredients: source.ingredients,
+        instructions: source.instructions,
+      },
+      substitutions: [],
+      parentRecipeIds: [source.id],
+      revisionReason: "x",
+    })
+  ) return { status: "too_large" };
   return {
     status: "ready",
     context: { source, noteExcerpt: request.noteExcerpt },
