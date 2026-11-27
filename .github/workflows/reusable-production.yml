@@ -142,7 +142,7 @@ jobs:
         run: node scripts/verify-production-worker-url.mjs
 
       - name: Verify recipe image release prerequisites
-        if: env.VITE_RECIPE_IMAGES == 'true' || vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'
+        if: env.VITE_RECIPE_IMAGES == 'true' || vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' || vars.RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'
         env:
           RECIPE_IMAGE_CLEANUP_ENABLED: ${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' && 'true' || 'false' }}
           PRODUCTION_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
@@ -279,6 +279,34 @@ jobs:
             --use-api \
             --yes
 
+      - name: Deploy recipe-image-final-cleanup Edge Function
+        id: deploy-recipe-image-final-cleanup
+        if: vars.RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'
+        working-directory: frontend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy recipe-image-final-cleanup \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --no-verify-jwt \
+            --use-api \
+            --yes
+
+      - name: Verify finalized image cleanup availability
+        id: final-cleanup-health
+        if: vars.RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --max-time 30 \
+            --output /dev/null --write-out '%{http_code}' --request POST \
+            "${VITE_SUPABASE_URL%/}/functions/v1/recipe-image-final-cleanup")"
+          if [[ "$status" != 401 ]]; then
+            echo "::error::Finalized cleanup must reject an unauthenticated probe with 401; received ${status}. Check deployment and its separate runtime token."
+            exit 1
+          fi
+
       - name: Deploy recipe-image-upload-url Edge Function
         id: deploy-recipe-image-upload-url
         if: env.VITE_RECIPE_IMAGES == 'true'
@@ -349,6 +377,8 @@ jobs:
           ACCOUNT_EXPORT_OUTCOME: ${{ steps.deploy-account-export.outcome }}
           IMAGE_ATTACH_OUTCOME: ${{ steps.deploy-recipe-image-attach.outcome }}
           IMAGE_DOWNLOAD_OUTCOME: ${{ steps.deploy-recipe-image-download-url.outcome }}
+          IMAGE_FINAL_CLEANUP_OUTCOME: ${{ steps.deploy-recipe-image-final-cleanup.outcome }}
+          IMAGE_FINAL_CLEANUP_HEALTH_OUTCOME: ${{ steps.final-cleanup-health.outcome }}
           IMAGE_CLEANUP_OUTCOME: ${{ steps.deploy-recipe-image-cleanup.outcome }}
           IMAGE_SIGNER_OUTCOME: ${{ steps.deploy-recipe-image-upload-url.outcome }}
           EXTRACT_RECIPE_OUTCOME: ${{ steps.deploy-extract-recipe.outcome }}
@@ -367,6 +397,8 @@ jobs:
             echo "- recipe image attachment deployment command: ${IMAGE_ATTACH_OUTCOME}"
             echo "- recipe image private download deployment command: ${IMAGE_DOWNLOAD_OUTCOME}"
             echo "- recipe image cleanup deployment command: ${IMAGE_CLEANUP_OUTCOME}"
+            echo "- finalized image cleanup deployment command: ${IMAGE_FINAL_CLEANUP_OUTCOME}"
+            echo "- finalized image cleanup availability: ${IMAGE_FINAL_CLEANUP_HEALTH_OUTCOME}"
             echo "- recipe image signer deployment command: ${IMAGE_SIGNER_OUTCOME}"
             echo "- extract-recipe deployment command: ${EXTRACT_RECIPE_OUTCOME}"
             echo "- generate-recipe deployment command: ${GENERATE_RECIPE_OUTCOME}"

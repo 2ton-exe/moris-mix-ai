@@ -158,6 +158,60 @@ Leave `VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY` unset or `false` until the current 
 
 To roll back the UI, unset `VITE_RECIPE_IMAGES` or set it to `false` and rerun **Modular Main Validation** on `main`. Keep healthy staging cleanup running to drain outstanding intents. If the cleanup opt-in is unsafe or its release check prevents the rollback, turn it off as well and investigate before resuming it. Rolling back the frontend does not remove the deployed functions or revert database migrations; coordinate a server-side rollback separately if needed.
 
+### Enable finalized image cleanup
+
+This is a separate, **off by default** operation from staging cleanup. This PR prepares the wiring only; it does not deploy a function, configure secrets, or enable a schedule. Keep `RECIPE_IMAGE_FINAL_CLEANUP_ENABLED` unset or `false` until an authorized operator completes these steps. Neither `VITE_RECIPE_IMAGES` nor `RECIPE_IMAGE_CLEANUP_ENABLED` enables finalized cleanup.
+
+1. Verify the intended project matches `project_id` in `supabase/config.toml`. Complete the guarded database recovery/migration release above. Independently verify all recipe-image migrations, especially `20261107000016_recipe_image_final_lifecycle.sql` and `20261115000022_supabase_roundtrip_performance.sql`, the finalization-attempt and cleanup tables, forced RLS, and the service-role-only `claim_recipe_image_final_cleanup` and `finish_recipe_image_final_cleanup` RPC grants. Test replacement, deletion, crashed-copy recovery, and rejection of currently referenced keys in an isolated non-production project. Verify the existing bucket-scoped runtime R2 credential can delete final objects in the intended private bucket. Do not expand permissions or use the staging credential as the final cleanup bearer token.
+2. Create the GitHub environment `recipe-image-final-cleanup-production`, restrict deployment branches to `main`, and permit unattended schedule execution. Set its `VITE_SUPABASE_URL` and `SUPABASE_PROJECT_REF` variables to the verified project. Keep the repository opt-in off. Pause **Recipe Image Final Cleanup** before the first rollout so it cannot invoke an older worker:
+
+   ```sh
+   gh workflow disable recipe-image-final-cleanup.yml --repo 2ton-exe/moris-mix-ai
+   ```
+
+3. Generate a new independent random token of at least 32 characters in the approved secret manager. Configure the same value as Supabase runtime `RECIPE_IMAGE_FINAL_CLEANUP_TOKEN` and as the GitHub environment secret of that name. Never reuse `RECIPE_IMAGE_CLEANUP_TOKEN`. From the release checkout, the following operator-only commands accept the token without echoing it; use the verified project reference in `SUPABASE_PROJECT_REF` and an authorized Supabase CLI session. Do not put tokens in repository files or logs:
+
+   ```sh
+   read -rs RECIPE_IMAGE_FINAL_CLEANUP_TOKEN
+   token_file="$(mktemp)"
+   chmod 600 "$token_file"
+   trap 'rm -f "$token_file"; unset RECIPE_IMAGE_FINAL_CLEANUP_TOKEN' EXIT
+   printf 'RECIPE_IMAGE_FINAL_CLEANUP_TOKEN=%s\n' "$RECIPE_IMAGE_FINAL_CLEANUP_TOKEN" > "$token_file"
+   (cd frontend && pnpm exec supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" --env-file "$token_file")
+   printf '%s' "$RECIPE_IMAGE_FINAL_CLEANUP_TOKEN" | gh secret set RECIPE_IMAGE_FINAL_CLEANUP_TOKEN \
+     --env recipe-image-final-cleanup-production --repo 2ton-exe/moris-mix-ai
+   rm -f "$token_file"
+   unset RECIPE_IMAGE_FINAL_CLEANUP_TOKEN
+   ```
+
+4. With the cleanup workflow still paused, set the repository variable `RECIPE_IMAGE_FINAL_CLEANUP_ENABLED=true` and dispatch **Modular Main Validation** on the current `main`. This is the production activation step and requires separate authorization. The release verifies the migration ledger, deploys `recipe-image-final-cleanup` using the existing production release credentials, and sends an unauthenticated POST expecting `401`. A missing runtime token yields `503` and blocks release. This probe never claims or deletes objects. Check the deployment and availability outcomes in the release summary. Do not resume scheduling after a failed deployment or probe.
+
+   ```sh
+   gh variable set RECIPE_IMAGE_FINAL_CLEANUP_ENABLED --body true --repo 2ton-exe/moris-mix-ai
+   gh workflow run modular-main.yml --ref main --repo 2ton-exe/moris-mix-ai
+   ```
+
+5. After the release passes, re-enable and manually dispatch **Recipe Image Final Cleanup** from `main`. Require a successful job with `Finalized image cleanup healthy` and `failed=0`, `processed=cleaned` (0–25). The workflow fails on HTTP errors, timeouts, malformed JSON, or inconsistent counters. The schedule runs at UTC minutes 7, 22, 37, 52 with one invocation at a time and five concurrent deletions within a batch.
+
+   ```sh
+   gh workflow enable recipe-image-final-cleanup.yml --repo 2ton-exe/moris-mix-ai
+   gh workflow run recipe-image-final-cleanup.yml --ref main --repo 2ton-exe/moris-mix-ai
+   ```
+
+6. Record the release revision, first manual run, first scheduled run, project/bucket identity and queue-health evidence without keys or signed URLs. Using an authorized privileged database session, run the read-only query below before and after activation. Investigate any `failed` row, expired claimed lease, or growing overdue backlog. A successful empty batch alone does not prove the queue healthy. `watching` rows intentionally remain for uncertain late copies and retry hourly; do not delete these records or treat their existence alone as a failure. The worker rechecks current recipe references before deletion. A non-production test should prove a replaced image drains and the current image remains readable.
+
+   ```sql
+   select status, count(*) as total,
+          count(*) filter (where next_attempt_at <= now()
+            and status in ('queued', 'retry', 'watching')) as due,
+          count(*) filter (where status = 'claimed' and lease_until <= now()) as expired_leases,
+          min(next_attempt_at) filter (where status in ('queued', 'retry', 'watching')) as oldest_due_at
+   from public.recipe_image_final_cleanup
+   group by status order by status;
+   ```
+
+To pause or roll back activation, set `RECIPE_IMAGE_FINAL_CLEANUP_ENABLED=false` and disable `recipe-image-final-cleanup.yml`. The flag stops future deployments and scheduled/manual jobs; it does not undeploy the worker, stop an in-flight invocation, revert image pointers, or restore deleted obsolete objects. For immediate bearer revocation, rotate or unset only the final cleanup runtime secret through the approved operations process. Keep the independent staging worker healthy. Correct configuration and inspect failed/overdue tasks before re-enabling; do not rewrite cleanup records to force retries without investigating the stored failure.
+
 ### DEVOPS-10 / #130: AI function delivery
 
 `modular-main.yml` remains the sole production caller. Successful core validation,
