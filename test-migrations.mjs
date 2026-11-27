@@ -1085,6 +1085,7 @@ async function runSchemaVerificationUnitTests() {
 
   const mockClientMissingTable = {
     query: async (sql) => {
+      if (sql === 'SHOW search_path') return { rows: [{ search_path: 'public, auth, extensions' }] };
       if (sql.includes('information_schema.tables')) {
         return { rows: [{ table_name: 'profiles' }, { table_name: 'recipes' }] };
       }
@@ -1098,6 +1099,7 @@ async function runSchemaVerificationUnitTests() {
 
   const mockClientMissingColumn = {
     query: async (sql) => {
+      if (sql === 'SHOW search_path') return { rows: [{ search_path: 'public, auth, extensions' }] };
       if (sql.includes('information_schema.tables')) {
         return { rows: [{ table_name: 'profiles' }, { table_name: 'recipes' }, { table_name: 'recipe_lineage' }, { table_name: 'ai_usage_daily' }] };
       }
@@ -1118,6 +1120,7 @@ async function runSchemaVerificationUnitTests() {
 
   const mockClientTypeMismatch = {
     query: async (sql) => {
+      if (sql === 'SHOW search_path') return { rows: [{ search_path: 'public, auth, extensions' }] };
       if (sql.includes('information_schema.tables')) {
         return { rows: [{ table_name: 'profiles' }, { table_name: 'recipes' }, { table_name: 'recipe_lineage' }, { table_name: 'ai_usage_daily' }] };
       }
@@ -1265,6 +1268,7 @@ async function runSchemaVerificationUnitTests() {
 
     return {
       query: async (sql) => {
+        if (sql === 'SHOW search_path') return { rows: [{ search_path: 'public, auth, extensions' }] };
         if (sql.includes('information_schema.tables')) {
           return { rows: completeTables };
         }
@@ -1298,6 +1302,17 @@ async function runSchemaVerificationUnitTests() {
   const resValid = await verifyInitialSchemaCompleteness(clientValid);
   assert.equal(resValid.status, 'complete');
   assert.equal(resValid.errors.length, 0);
+
+  let restoredSearchPath;
+  const policyReadFailure = new Error('policy catalog unavailable');
+  await assert.rejects(() => verifyInitialSchemaCompleteness({
+    query: async (sql, params) => {
+      if (sql.includes('FROM pg_catalog.pg_policies')) throw policyReadFailure;
+      if (sql.includes('pg_catalog.set_config')) restoredSearchPath = params[0];
+      return clientValid.query(sql, params);
+    }
+  }), policyReadFailure);
+  assert.equal(restoredSearchPath, 'public, auth, extensions');
 
   const clientDisabledRls = createMockClientWithCustom({ rlsOverrides: { recipes: false } });
   const resDisabledRls = await verifyInitialSchemaCompleteness(clientDisabledRls);
@@ -1648,6 +1663,17 @@ async function runDatabaseLifecycleIntegrationTests() {
       await runRecipeImageLifecycleDatabaseTests(testClient, testDbUrl, sslConfig);
       return;
     }
+    const originalSearchPath = (await testClient.query('SHOW search_path')).rows[0].search_path;
+    await testClient.query('SET search_path = public, auth, extensions');
+    try {
+      const policiesBefore = (await testClient.query('SELECT polname, polqual::text, polwithcheck::text FROM pg_policy ORDER BY oid')).rows;
+      assert.equal((await verifyInitialSchemaCompleteness(testClient)).status, 'complete');
+      assert.equal((await testClient.query('SHOW search_path')).rows[0].search_path, 'public, auth, extensions');
+      assert.deepEqual((await testClient.query('SELECT polname, polqual::text, polwithcheck::text FROM pg_policy ORDER BY oid')).rows, policiesBefore);
+    } finally {
+      await testClient.query("SELECT set_config('search_path', $1, false)", [originalSearchPath]);
+    }
+    console.log('PASS: Policy verification accepts auth in the session search path without changing the session or policies.');
     await runQuotaAuthorizationDatabaseTests(testClient);
     await runGeminiAdmissionDatabaseTests(testClient, testDbUrl, sslConfig);
     await runRecipeImageLifecycleDatabaseTests(testClient, testDbUrl, sslConfig);

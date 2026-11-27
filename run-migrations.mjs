@@ -649,12 +649,20 @@ export async function verifyInitialSchemaCompleteness(client) {
     }
   }
 
-  const polQuery = await client.query(`
-    SELECT tablename, policyname, permissive, roles, cmd, qual, with_check
-    FROM pg_policies
-    WHERE schemaname = 'public'
-      AND tablename = ANY($1::text[]);
-  `, [EXPECTED_INITIAL_TABLES]);
+  const savedSearchPath = (await client.query('SHOW search_path')).rows[0].search_path;
+  let polQuery;
+  try {
+    // Keep auth.uid() qualified when PostgreSQL deparses policy expressions.
+    await client.query('SET search_path = public, extensions');
+    polQuery = await client.query(`
+      SELECT tablename, policyname, permissive, roles, cmd, qual, with_check
+      FROM pg_catalog.pg_policies
+      WHERE schemaname = 'public'
+        AND tablename = ANY($1::text[]);
+    `, [EXPECTED_INITIAL_TABLES]);
+  } finally {
+    await client.query("SELECT pg_catalog.set_config('search_path', $1, false)", [savedSearchPath]);
+  }
 
   const actualPolicies = new Map();
   for (const pol of polQuery.rows) {
