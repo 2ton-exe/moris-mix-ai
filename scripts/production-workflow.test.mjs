@@ -56,8 +56,8 @@ function condition(expression, overrides = {}) {
     .replace(/inputs\.apply-image-migrations/g, 'inputs["apply-image-migrations"]')
     .replace(/inputs\.require-hosted-rls/g, 'inputs["require-hosted-rls"]')
     // Actions compares strings without case sensitivity (unlike JavaScript).
-    .replace(/((?:vars|env)\.(?:RECIPE_IMAGE_CLEANUP_ENABLED|VITE_RECIPE_IMAGES)) == ('true')/g, 'actionsStringEqual($1, $2)')
-    .replace(/((?:vars|env)\.(?:RECIPE_IMAGE_CLEANUP_ENABLED|VITE_RECIPE_IMAGES)) != ('true')/g, '!actionsStringEqual($1, $2)');
+    .replace(/((?:vars|env)\.(?:RECIPE_IMAGE_CLEANUP_ENABLED|RECIPE_IMAGE_FINAL_CLEANUP_ENABLED|VITE_RECIPE_IMAGES)) == ('true')/g, 'actionsStringEqual($1, $2)')
+    .replace(/((?:vars|env)\.(?:RECIPE_IMAGE_CLEANUP_ENABLED|RECIPE_IMAGE_FINAL_CLEANUP_ENABLED|VITE_RECIPE_IMAGES)) != ('true')/g, '!actionsStringEqual($1, $2)');
   return Function(...Object.keys(context), `return (${source});`)(...Object.values(context));
 }
 
@@ -65,6 +65,7 @@ for (const [name, job] of [
   ['production deployment', release],
   ['recipe image readiness', recipeImageReadiness],
   ['scheduled image cleanup', scheduledCleanup.jobs.cleanup],
+  ['scheduled finalized image cleanup', workflow('recipe-image-final-cleanup').jobs.cleanup],
 ]) {
   test(`${name} pins every external action to a commit`, () => {
     const actions = job.steps.filter(step => step.uses && !step.uses.startsWith('./'));
@@ -284,14 +285,17 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     'Deploy account-export Edge Function',
     'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function', 'Deploy recipe-image-attach Edge Function',
     'Deploy recipe-image-download-url Edge Function', 'Deploy recipe image upload cleanup Edge Function',
+    'Deploy recipe-image-final-cleanup Edge Function', 'Verify finalized image cleanup availability',
     'Deploy recipe-image-upload-url Edge Function', 'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke',
     'Record production deployment and runtime outcomes', 'Preserve production runtime evidence', 'Preserve production AI route evidence'];
   const positions = ordered.map(name => release.steps.indexOf(step(release, name)));
   assert.ok(positions.every((position, i) => position >= 0 && (!i || position > positions[i - 1])));
   const guarded = {
-    'Verify recipe image release prerequisites': "env.VITE_RECIPE_IMAGES == 'true' || vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'",
+    'Verify recipe image release prerequisites': "env.VITE_RECIPE_IMAGES == 'true' || vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' || vars.RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'",
     'Deploy recipe-image-download-url Edge Function': "env.VITE_RECIPE_IMAGES == 'true'",
     'Deploy recipe image upload cleanup Edge Function': "vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'",
+    'Deploy recipe-image-final-cleanup Edge Function': "vars.RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'",
+    'Verify finalized image cleanup availability': "vars.RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'",
     'Deploy recipe-image-upload-url Edge Function': "env.VITE_RECIPE_IMAGES == 'true'",
     'Deploy account-export Edge Function': false,
   };
@@ -309,7 +313,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const commands = release.steps.map(s => s.run ?? '').join('\n');
   assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), [
     'recipes', 'account-export', 'extract-recipe', 'generate-recipe', 'recipe-image-attach',
-    'recipe-image-download-url', 'recipe-image-upload-cleanup', 'recipe-image-upload-url',
+    'recipe-image-download-url', 'recipe-image-upload-cleanup', 'recipe-image-final-cleanup', 'recipe-image-upload-url',
   ]);
   const migrationStepIds = ['preview-migrations', 'deploy-migrations', 'verify-migrations'];
   if (release.steps.some(item => migrationStepIds.includes(item.id))) {
@@ -398,6 +402,8 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     ACCOUNT_EXPORT_OUTCOME: '${{ steps.deploy-account-export.outcome }}',
     IMAGE_ATTACH_OUTCOME: '${{ steps.deploy-recipe-image-attach.outcome }}',
     IMAGE_DOWNLOAD_OUTCOME: '${{ steps.deploy-recipe-image-download-url.outcome }}',
+    IMAGE_FINAL_CLEANUP_OUTCOME: '${{ steps.deploy-recipe-image-final-cleanup.outcome }}',
+    IMAGE_FINAL_CLEANUP_HEALTH_OUTCOME: '${{ steps.final-cleanup-health.outcome }}',
     IMAGE_CLEANUP_OUTCOME: '${{ steps.deploy-recipe-image-cleanup.outcome }}',
     IMAGE_SIGNER_OUTCOME: '${{ steps.deploy-recipe-image-upload-url.outcome }}',
     EXTRACT_RECIPE_OUTCOME: '${{ steps.deploy-extract-recipe.outcome }}',
@@ -755,6 +761,7 @@ test('image releases check the ledger whenever publishing the UI or deploying cl
       assert.equal(condition(download.if, context), ui === 'true');
     }
   }
+  assert.equal(condition(gate.if, { env: { VITE_RECIPE_IMAGES: 'false' }, vars: { RECIPE_IMAGE_FINAL_CLEANUP_ENABLED: 'true' } }), true);
 });
 
 test('image release validates normalized origin, migrations and cleanup before deploy', () => {
@@ -1033,4 +1040,83 @@ test('production migrations use the shared release path without a competing imag
   const commands = Object.values(main.jobs).flatMap(job => (job.steps ?? []).map(item => item.run ?? '')).join('\n');
   assert.doesNotMatch(commands, /db\s+push|migration\s+up|production-image-migration-plan/);
   assert.equal(existsSync('scripts/production-image-migration-plan.mjs'), false);
+});
+
+
+test('finalized image cleanup has independent default-off deployment and schedule gates', () => {
+  const finalWorkflow = workflow('recipe-image-final-cleanup');
+  const job = finalWorkflow.jobs.cleanup;
+  const deployment = step(release, 'Deploy recipe-image-final-cleanup Edge Function');
+  assert.equal(deployment.if, "vars.RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'");
+  assert.equal(condition(deployment.if), false);
+  assert.equal(condition(deployment.if, { vars: { RECIPE_IMAGE_CLEANUP_ENABLED: 'true' } }), false);
+  assert.equal(condition(deployment.if, { vars: { RECIPE_IMAGE_FINAL_CLEANUP_ENABLED: 'true' } }), true);
+  assert.equal(condition(job.if), false);
+  assert.equal(condition(job.if, { vars: { RECIPE_IMAGE_CLEANUP_ENABLED: 'true' } }), false);
+  assert.equal(condition(job.if, { vars: { RECIPE_IMAGE_FINAL_CLEANUP_ENABLED: 'true' } }), true);
+  assert.equal(condition(job.if, { github: { ref: 'refs/heads/other' }, vars: { RECIPE_IMAGE_FINAL_CLEANUP_ENABLED: 'true' } }), false);
+  assert.equal(job.environment, 'recipe-image-final-cleanup-production');
+  assert.deepEqual(finalWorkflow.on.schedule, [{ cron: '7,22,37,52 * * * *' }]);
+  assert.equal('workflow_dispatch' in finalWorkflow.on, true);
+  assert.deepEqual(finalWorkflow.permissions, { contents: 'read' });
+  assert.equal(finalWorkflow.concurrency['cancel-in-progress'], false);
+  const invocation = job.steps.at(-1);
+  assert.equal(invocation.env.RECIPE_IMAGE_FINAL_CLEANUP_TOKEN, '${{ secrets.RECIPE_IMAGE_FINAL_CLEANUP_TOKEN }}');
+  assert.doesNotMatch(invocation.run, /Bearer.*RECIPE_IMAGE_CLEANUP_TOKEN|secrets set|functions deploy/);
+  assert.match(invocation.run, /failed == 0/);
+  assert.match(deployment.run, /functions deploy recipe-image-final-cleanup/);
+  const health = step(release, 'Verify finalized image cleanup availability');
+  assert.equal(health.if, deployment.if);
+  assert.match(health.run, /401/);
+  assert.doesNotMatch(health.run, /Authorization|Bearer/);
+});
+
+
+test('final cleanup invocation rejects unhealthy responses and invalid targets before sending credentials', () => {
+  const job = workflow('recipe-image-final-cleanup').jobs.cleanup;
+  const invocation = job.steps.at(-1);
+  const projectRef = readFileSync('supabase/config.toml', 'utf8').match(/^project_id = "([^"]+)"/m)[1];
+  const check = (overrides = {}) => spawnSync('bash', ['-c', `
+    curl() {
+      printf '%s\n' 'CURL_CALLED' >&2
+      printf '%s' "$TEST_RESPONSE"
+      return "$TEST_CURL_STATUS"
+    }
+    ${invocation.run}
+  `], {
+    encoding: 'utf8',
+    env: { ...process.env, SUPABASE_PROJECT_REF: projectRef,
+      SUPABASE_URL: `https://${projectRef}.supabase.co`,
+      RECIPE_IMAGE_FINAL_CLEANUP_TOKEN: 'synthetic-final-cleanup-token-0123456789',
+      TEST_RESPONSE: '{"processed":2,"cleaned":2,"failed":0}', TEST_CURL_STATUS: '0', ...overrides },
+  });
+  assert.equal(check().status, 0);
+  assert.equal(check({ TEST_RESPONSE: '{"processed":0,"cleaned":0,"failed":0}' }).status, 0);
+  for (const TEST_RESPONSE of ['{}', 'null', '<html>error</html>',
+    '{"processed":2,"cleaned":1,"failed":1}', '{"processed":2,"cleaned":1,"failed":0}',
+    '{"processed":26,"cleaned":26,"failed":0}', '{"processed":1.5,"cleaned":1.5,"failed":0}']) {
+    const result = check({ TEST_RESPONSE });
+    assert.notEqual(result.status, 0, TEST_RESPONSE);
+    assert.match(result.stdout, /unhealthy or invalid/);
+  }
+  for (const overrides of [
+    { TEST_CURL_STATUS: '22' }, { TEST_CURL_STATUS: '28' },
+    { RECIPE_IMAGE_FINAL_CLEANUP_TOKEN: '' }, { RECIPE_IMAGE_FINAL_CLEANUP_TOKEN: 'short' },
+    { SUPABASE_URL: 'http://localhost:54321' }, { SUPABASE_PROJECT_REF: 'wrong-project' },
+    { SUPABASE_URL: 'https://other.supabase.co' },
+  ]) {
+    const result = check(overrides);
+    assert.notEqual(result.status, 0, JSON.stringify(overrides));
+    if (!('TEST_CURL_STATUS' in overrides)) assert.doesNotMatch(result.stderr, /CURL_CALLED/);
+  }
+});
+
+test('final cleanup availability probe is read-only and requires the configured handler', () => {
+  const health = step(release, 'Verify finalized image cleanup availability');
+  for (const [status, exitCode] of [['401', 0], ['200', 1], ['404', 1], ['503', 1]]) {
+    const result = spawnSync('bash', ['-c', `curl() { printf '%s' "$TEST_STATUS"; }; ${health.run}`], {
+      encoding: 'utf8', env: { ...process.env, TEST_STATUS: status, VITE_SUPABASE_URL: 'https://synthetic.supabase.co' },
+    });
+    assert.equal(result.status, exitCode, result.stdout + result.stderr);
+  }
 });

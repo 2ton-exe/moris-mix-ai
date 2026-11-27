@@ -1,0 +1,72 @@
+name: Recipe Image Final Cleanup
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recipe-image-final-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: ${{ github.ref == 'refs/heads/main' && vars.RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: recipe-image-final-cleanup-production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Invoke finalized recipe image cleanup
+        env:
+          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          RECIPE_IMAGE_FINAL_CLEANUP_TOKEN: ${{ secrets.RECIPE_IMAGE_FINAL_CLEANUP_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${SUPABASE_URL//[[:space:]]/}" || -z "${SUPABASE_PROJECT_REF//[[:space:]]/}" || -z "${RECIPE_IMAGE_FINAL_CLEANUP_TOKEN//[[:space:]]/}" ]]; then
+            echo "::error::Configure VITE_SUPABASE_URL, SUPABASE_PROJECT_REF, and RECIPE_IMAGE_FINAL_CLEANUP_TOKEN before enabling cleanup."
+            exit 1
+          fi
+          if [[ "$SUPABASE_URL" != https://* ]]; then
+            echo "::error::VITE_SUPABASE_URL must use HTTPS."
+            exit 1
+          fi
+          config_project_ref="$(sed -n 's/^project_id = "\([^"]*\)"/\1/p' supabase/config.toml)"
+          if [[ "$SUPABASE_PROJECT_REF" != "$config_project_ref" ]]; then
+            echo "::error::SUPABASE_PROJECT_REF must match project_id in supabase/config.toml."
+            exit 1
+          fi
+          supabase_url="${SUPABASE_URL%/}"
+          if [[ "$supabase_url" != "https://${SUPABASE_PROJECT_REF}.supabase.co" ]]; then
+            echo "::error::VITE_SUPABASE_URL must target SUPABASE_PROJECT_REF."
+            exit 1
+          fi
+          if (( ${#RECIPE_IMAGE_FINAL_CLEANUP_TOKEN} < 32 )); then
+            echo "::error::RECIPE_IMAGE_FINAL_CLEANUP_TOKEN must contain at least 32 characters."
+            exit 1
+          fi
+          result="$(curl --fail --silent --show-error \
+            --max-time 90 \
+            --request POST \
+            --header "Authorization: Bearer ${RECIPE_IMAGE_FINAL_CLEANUP_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data '{}' \
+            "${SUPABASE_URL%/}/functions/v1/recipe-image-final-cleanup")"
+          if ! jq -e '
+            type == "object" and
+            (.processed | type == "number" and floor == . and . >= 0 and . <= 25) and
+            (.cleaned | type == "number" and floor == . and . >= 0) and
+            .failed == 0 and .processed == .cleaned
+          ' <<< "$result" >/dev/null; then
+            echo "::error::Finalized image cleanup returned an unhealthy or invalid result."
+            exit 1
+          fi
+          echo "Finalized image cleanup healthy: $(jq -c '{processed, cleaned, failed}' <<< "$result")"
