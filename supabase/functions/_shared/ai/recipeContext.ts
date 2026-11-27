@@ -1,3 +1,4 @@
+import { normalizePantryIngredient } from "../ingredient-identity.ts";
 import {
   authenticateRequest,
   type AuthContext,
@@ -135,7 +136,7 @@ export function normalizeIngredientName(name: string): string {
   if (typeof name !== "string") {
     throw new Error("INVALID_INGREDIENT_NAME: expected string");
   }
-  return name.trim().toLowerCase().replace(/\s+/g, " ");
+  return normalizePantryIngredient(name).identity;
 }
 
 export function normalizePantryItems(items: string[]): string[] {

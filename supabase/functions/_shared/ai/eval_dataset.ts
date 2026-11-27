@@ -150,7 +150,7 @@ const CANDIDATE_B: RankedRecipeContextItem = {
   star_rating: null,
   created_at: "2026-10-02T00:00:00.000Z",
   overlap_ratio: 0.5,
-  matched_ingredients: ["eggs"],
+  matched_ingredients: ["egg"],
 };
 
 /** Reusable BE-10 contexts so generation cases stay readable. */
