@@ -103,6 +103,8 @@ function AIChefSession({ userId }: { userId: string }) {
   const preferencesStartPage = pantryEnds.length
   const pageCount = handoff ? 1 : preferencesStartPage + preferenceParts.length
   const page = handoff ? 0 : leafPage(previewLeaf ?? chefLeaf, pantryEntries, pantryEnds, preferenceParts.length)
+  const duplicateIndex = duplicateFeedback ? pantryEntries.findIndex(({ identity }) => duplicateFeedback.identities.includes(identity)) : -1
+  const duplicatePage = duplicateIndex < 0 ? -1 : pantryEnds.findIndex((end) => duplicateIndex < end)
   const continued = page > 0 && page < preferencesStartPage
   const preferencePartIndex = page - preferencesStartPage
   const preferencePart = preferenceParts[preferencePartIndex] ?? ''
@@ -122,10 +124,10 @@ function AIChefSession({ userId }: { userId: string }) {
   useEffect(() => () => controller.current?.abort(), [])
 
   useEffect(() => {
-    if (!duplicateFeedback) return
+    if (!duplicateFeedback || isTurning || !board && duplicatePage !== page) return
     const timer = window.setTimeout(() => setDuplicateFeedback(null), 4000)
     return () => window.clearTimeout(timer)
-  }, [duplicateFeedback])
+  }, [duplicateFeedback, board, duplicatePage, page, isTurning])
 
   useLayoutEffect(() => {
     if (!board || !duplicateFeedback) return
@@ -525,6 +527,8 @@ function AIChefSession({ userId }: { userId: string }) {
         </div>}
         {entryError && <p id="pantry-entry-error" className="field-error" role="alert">{entryError}</p>}
         </fieldset>
+        {!board && duplicatePage > 0 && <button type="button" className="button button-secondary mm-button--small" disabled={pending || isTurning}
+          onClick={() => turnPage(duplicatePage)}>Show existing ingredient</button>}
         </div>
         <p className="visually-hidden" role="status" aria-live="polite">{entryStatus}</p>
         <header className="mm-ai-chef__pantry-pages" data-measure-only={!continued || undefined} inert={!continued} aria-hidden={!continued || undefined}>

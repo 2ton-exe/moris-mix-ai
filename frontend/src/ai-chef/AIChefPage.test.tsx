@@ -173,6 +173,19 @@ describe('AI Chef pantry and review workflow', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it('keeps off-leaf duplicates discoverable on short desktops without moving entry focus', async () => {
+    renderChef()
+    addIngredient('rice, beans, tomatoes')
+    addIngredient('TOMATO')
+    const input = screen.getByRole('textbox', { name: 'Pantry ingredient' })
+    expect(document.activeElement).toBe(input)
+    expect(screen.queryByRole('button', { name: 'Remove tomatoes' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show existing ingredient' }))
+    await finishJournalTurn(() => Boolean(screen.queryByRole('button', { name: 'Remove tomatoes' })))
+    expect(screen.getByRole('button', { name: 'Remove tomatoes' }).closest('li')?.getAttribute('data-duplicate')).toBe('true')
+    expect(screen.getByRole('region', { name: 'Pantry list, 3 items' })).toBeTruthy()
+  })
+
   it('reflects normalized quick-add membership and allows adding again after removal', () => {
     desktopPantry()
     renderChef()
