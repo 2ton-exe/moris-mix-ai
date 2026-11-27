@@ -98,6 +98,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const desktopCreate = !single && newRecipeScrapbook
   const desktopRecipeEditor = !single && desktop && !desktopReview
   const desktopEdit = desktopRecipeEditor && mode === 'edit'
+  const desktopMethod = desktopRecipeEditor && !reviewWorkflow
   const compactIngredientRows = compact && desktopEdit && roomForTwoIngredientRows ? 2 : 1
   const dragLayout = `${single}:${compact}:${compactIngredientRows}:${isTurning}:${pageAnchor}:${pending}`
   const ingredientDrag = useIngredientDrag(dragLayout)
@@ -113,7 +114,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   }, [movingRow])
   const expandedNotes = desktopReview || (desktopRecipeEditor && notesSupported)
   const instructionColumns = desktopRecipeEditor ? Math.max(1, textPageColumns - 18) : textPageColumns
-  const instructionLayout = desktopEdit ? measuredInstructions?.layout : undefined
+  const instructionLayout = desktopMethod ? measuredInstructions?.layout : undefined
   const hasComparison = Boolean(reviewComparison)
   const flowingReview = desktopReview && hasComparison
   const leaves = useMemo(() => {
@@ -240,7 +241,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       })
       const footerSpace = paper ? getComputedStyle(paper).getPropertyValue('--mm-footer-height') : ''
       const footerReady = !footer || Number.parseFloat(footerSpace) === footer.offsetHeight
-      if (desktopEdit && paperLayout.viewport === `${window.innerWidth}:${window.innerHeight}` && footerReady && !isTurning && !pending && !message && !saved && (!document.fonts || document.fonts.status === 'loaded') && methods.length > 0) {
+      if (desktopMethod && paperLayout.viewport === `${window.innerWidth}:${window.innerHeight}` && footerReady && !isTurning && !pending && !message && !saved && (!document.fonts || document.fonts.status === 'loaded') && methods.length > 0) {
         const { field } = methods[0]
         const card = field.closest('fieldset')
         if (card) {
@@ -301,7 +302,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     document.fonts?.addEventListener('loadingdone', measureFonts)
     measure()
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure, true); document.fonts?.removeEventListener('loadingdone', measureFonts) }
-  }, [single, compact, paperLayout.viewport, desktopEdit, flowingReview, leaves.length, visibleIndicesKey, rememberFocus, pending, message, saved, isTurning])
+  }, [single, compact, paperLayout.viewport, desktopEdit, desktopMethod, flowingReview, leaves.length, visibleIndicesKey, rememberFocus, pending, message, saved, isTurning])
 
   useLayoutEffect(() => {
     editorScope(formRef.current)?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))
@@ -317,7 +318,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
 
   // One controlled draft owns every value. Only current leaves are mounted.
   useLayoutEffect(() => {
-    const layout = (single ? 'single' : compact ? `compact:${compactIngredientRows}:${compactIngredientRows === 2 ? currentLeafIndex : ''}` : 'spread') + (desktopEdit ? `:${measuredInstructions?.key ?? ''}` : '')
+    const layout = (single ? 'single' : compact ? `compact:${compactIngredientRows}:${compactIngredientRows === 2 ? currentLeafIndex : ''}` : 'spread') + (desktopMethod ? `:${measuredInstructions?.key ?? ''}` : '')
     const instructionsChanged = previousInstructionLayout.current !== instructionLayout
     previousInstructionLayout.current = instructionLayout
     const modeChanged = previousLayout.current !== '' && previousLayout.current !== layout
@@ -327,7 +328,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       const remembered = lastFocusedControl.current
       const active = document.activeElement
       const selection = instructionsChanged ? measuredInstructions?.selection : instructionSelection.current
-      if (modeChanged && desktopEdit && !pending && !isTurning && selection && (active === document.body || active instanceof HTMLTextAreaElement && active.dataset.instructionKey === selection.rowKey)) {
+      if (modeChanged && desktopMethod && !pending && !isTurning && selection && (active === document.body || active instanceof HTMLTextAreaElement && active.dataset.instructionKey === selection.rowKey)) {
         const fields = Array.from(editorScope(formRef.current)?.querySelectorAll<HTMLTextAreaElement>('textarea[data-instruction-key]') ?? [])
           .filter(field => field.dataset.instructionKey === selection.rowKey && Number(field.dataset.instructionOffset) <= selection.start)
         const control = fields.at(-1)
@@ -367,7 +368,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       target = named instanceof HTMLElement ? named : editorScope(formRef.current)?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? null
     }
     target?.focus()
-  }, [state, errors, pending, isTurning, pageAnchor, single, compact, compactIngredientRows, currentLeafIndex, desktop, desktopEdit, editingIngredientKey, leaves, instructionLayout, measuredInstructions, rememberFocus])
+  }, [state, errors, pending, isTurning, pageAnchor, single, compact, compactIngredientRows, currentLeafIndex, desktop, desktopEdit, desktopMethod, editingIngredientKey, leaves, instructionLayout, measuredInstructions, rememberFocus])
 
   useLayoutEffect(() => {
     requestedStart.current = single ? currentLeafIndex : Math.floor(currentLeafIndex / 2) * 2
@@ -433,9 +434,9 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     const firstIndex = single ? page : page * 2
     const leaf = leaves[targetIndex ?? firstIndex]
     if (!leaf) return false
-    return requestJournalPageTurnFrom(formRef.current, page > position.page ? 'forward' : 'backward', () => setPreviewAnchor(leafAnchorForPage(leaf, desktopEdit)), () => {
+    return requestJournalPageTurnFrom(formRef.current, page > position.page ? 'forward' : 'backward', () => setPreviewAnchor(leafAnchorForPage(leaf, desktopMethod)), () => {
       requestedStart.current = firstIndex
-      setPageAnchor(leafAnchorForPage(leaf, desktopEdit))
+      setPageAnchor(leafAnchorForPage(leaf, desktopMethod))
       setPreviewAnchor(null)
       focusRequest.current = 'leaf-heading'
       afterTurn?.()
@@ -909,12 +910,12 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       }).filter((entry): entry is { item: RecipeEditorState['instructions'][number]; rowIndex: number; part: number } => entry !== null) : []
       const containsLast = items.some(({ item }) => item.key === state.instructions.at(-1)?.key)
       const isLastMethodLeafOnSpread = !visibleIndices.some((visibleIndex) => visibleIndex > index && leaves[visibleIndex]?.kind === 'instructions')
-      const addStepButton = <button className="button mm-row-add" type="button" name="add-step" ref={!items.length ? focusInitialMethod : undefined} data-form-focus-key="add-step" onClick={addStep} disabled={state.instructions.length >= 100}><Plus size={16} aria-hidden="true" /> {desktopEdit ? 'Add step' : 'Add cooking step'}</button>
+      const addStepButton = <button className="button mm-row-add" type="button" name="add-step" ref={!items.length ? focusInitialMethod : undefined} data-form-focus-key="add-step" onClick={addStep} disabled={state.instructions.length >= 100}><Plus size={16} aria-hidden="true" /> {desktopMethod ? 'Add step' : 'Add cooking step'}</button>
       pageContent = <section className="recipe-form-section" aria-labelledby={headingId}>
         <div className="recipe-section-heading">
           <h2 id={headingId} tabIndex={-1}>{sectionTitle}</h2>
           {reviewWorkflow && items.length > 0 && (invalidReviewFields.includes('instructions') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count" data-review-ready>Ready</span>)}
-          {desktopEdit && isLastMethodLeafOnSpread && addStepButton}
+          {desktopMethod && isLastMethodLeafOnSpread && addStepButton}
         </div>
         {!items.length && <p className="editor-empty">No cooking steps yet.</p>}
         {items.map(({ item, rowIndex, part }) => {
@@ -934,7 +935,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
             <GripVertical size={18} aria-hidden="true" />
           </button>}
           <RecipeFormField id={fieldId} label={desktopRecipeEditor ? <span className="visually-hidden">{fieldLabel}</span> : fieldLabel} error={errors['instructions.' + rowIndex + '.text']}>
-            <textarea ref={rowIndex === 0 && part === 0 ? focusInitialMethod : undefined} {...field('instructions.' + rowIndex + '.text', false, `instruction:${item.key}:text:${part}`, fieldId)} data-form-page-anchor={desktopEdit ? `instruction:${item.key}:offset:${partOffset}` : `instruction:${item.key}:part:${part}`} data-instruction-key={desktopEdit ? item.key : undefined} data-instruction-offset={desktopEdit ? partOffset : undefined} data-form-autosize maxLength={Math.max(partText.length, 2_000 - item.text.length + partText.length)} rows={desktopRecipeEditor ? 1 : 4} value={partText} onChange={(event) => change({ ...state, instructions: state.instructions.map((row) => row.key === item.key ? { ...row, text: replaceFormTextPart(parts, part, event.target.value) } : row) })} />
+            <textarea ref={rowIndex === 0 && part === 0 ? focusInitialMethod : undefined} {...field('instructions.' + rowIndex + '.text', false, `instruction:${item.key}:text:${part}`, fieldId)} data-form-page-anchor={desktopMethod ? `instruction:${item.key}:offset:${partOffset}` : `instruction:${item.key}:part:${part}`} data-instruction-key={desktopMethod ? item.key : undefined} data-instruction-offset={desktopMethod ? partOffset : undefined} data-form-autosize maxLength={Math.max(partText.length, 2_000 - item.text.length + partText.length)} rows={desktopRecipeEditor ? 1 : 4} value={partText} onChange={(event) => change({ ...state, instructions: state.instructions.map((row) => row.key === item.key ? { ...row, text: replaceFormTextPart(parts, part, event.target.value) } : row) })} />
           </RecipeFormField>
           {part === 0 && <div className="recipe-row-actions">
             {!desktopRecipeEditor && <>
@@ -946,7 +947,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
         </fieldset>
           return desktopRecipeEditor && part === 0 ? <div className="recipe-step-slot" data-instruction-slot={rowIndex} key={item.key}>{card}</div> : card
         })}
-        {!desktopEdit && (!items.length || containsLast) && addStepButton}
+        {!desktopMethod && (!items.length || containsLast) && addStepButton}
       </section>
     }
 

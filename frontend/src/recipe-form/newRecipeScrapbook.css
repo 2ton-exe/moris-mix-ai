@@ -293,7 +293,7 @@
   }
   .recipe-step-slot:nth-of-type(3n + 2) .recipe-step-card__number { background: var(--mm-color-lilac-100, #e6dff0); }
   .mm-recipe-form-editor .mm-writing-leaf .recipe-step-card > .recipe-form-field { grid-column: 2; grid-row: 1; margin: 0; }
-  .mm-edit-recipe .mm-writing-leaf .recipe-step-card:not(:has(> .recipe-row-actions)) > .recipe-form-field { grid-column: 2 / -1; }
+  :is(.mm-edit-recipe, .mm-new-recipe) .mm-writing-leaf .recipe-step-card:not(:has(> .recipe-row-actions)) > .recipe-form-field { grid-column: 2 / -1; }
   .mm-recipe-form-editor .mm-writing-leaf .recipe-step-card textarea[name^='instructions.'] {
     field-sizing: content;
     inline-size: 100%;

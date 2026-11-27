@@ -540,7 +540,7 @@ try {
   await expect(initialMethod).toHaveValue('Warm the rice, then fold in the eggs.')
   const cookingMethod = page.getByRole('region', { name: 'Instructions', exact: true })
   await expect(cookingMethod.getByText('Ready', { exact: true })).toBeHidden()
-  await expect(cookingMethod.getByRole('button', { name: 'Add cooking step' })).toBeVisible()
+  await expect(cookingMethod.getByRole('button', { name: /^Add (?:cooking )?step$/ })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: /Instructions.*Step/ })).toBeVisible()
   await advanceChefReviewToSave(page)
   await expect(save).toBeVisible()

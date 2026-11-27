@@ -360,11 +360,11 @@ try {
   await page.screenshot({ path: path.join(outputDir, 'new-recipe-mid-turn.png') })
   await turn.evaluate((layer) => layer.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
   await turn.waitFor({ state: 'detached' })
-  await page.getByRole('button', { name: 'Add cooking step' }).click()
+  await page.getByRole('button', { name: /^Add (?:cooking )?step$/ }).click()
   await page.getByLabel('Step 1 description').fill('Chop the tomatoes.')
-  await page.getByRole('button', { name: 'Add cooking step' }).click()
+  await page.getByRole('button', { name: /^Add (?:cooking )?step$/ }).click()
   await page.getByLabel('Step 2 description').fill('Warm the olive oil.')
-  await page.getByRole('button', { name: 'Add cooking step' }).click()
+  await page.getByRole('button', { name: /^Add (?:cooking )?step$/ }).click()
   await page.getByLabel('Step 3 description').fill('Simmer until tender.')
   const compactSteps = await page.locator('.recipe-step-card').evaluateAll(cards => cards.map(card => ({
     height: card.getBoundingClientRect().height,
@@ -867,6 +867,36 @@ try {
   await context.close()
   process.stdout.write(`Delete flow: cancellation, focus return, pending, recoverable failure/retry, and 204 success passed. Screenshots: ${outputDir}\n`)
 
+  const compactMethod = 'Warm the olive oil in a wide, heavy saucepan over medium heat. Add the chopped onion, carrot, celery and garlic, then stir gently until the onion is translucent and the vegetables begin to soften. Avoid browning the garlic; lower the heat if the pan feels too hot. Add the tomatoes and simmer gently, stirring from the bottom so the sauce stays smooth.'
+  for (const [width, height, maximumParts] of [[1100, 640, 3], [1280, 720, 2], [1470, 803, 1]]) {
+    const createContext = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce' })
+    try {
+      await createContext.route('**/*', interceptRequest)
+      await createContext.addInitScript(authenticate, { userId })
+      const sheet = await createContext.newPage()
+      await sheet.goto(new URL('app/recipes/new', origin).toString())
+      await sheet.evaluate(() => globalThis.document.fonts.ready)
+      await sheet.getByRole('textbox', { name: 'Recipe title', exact: true }).fill('Tomato sauce')
+      const addStep = sheet.getByRole('button', { name: /^Add (?:cooking )?step$/ })
+      for (let turn = 0; turn < 8 && !await addStep.isVisible(); turn++) await sheet.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
+      await addStep.click()
+      await sheet.getByRole('textbox', { name: 'Step 1 description', exact: true }).fill(compactMethod)
+      await settleJournalLayout(sheet)
+      const parts = []
+      for (let turn = 0; turn < 20; turn++) {
+        parts.push(...await sheet.locator('.mm-journal-book > .mm-journal-spread textarea[name^="instructions."]').evaluateAll(nodes => nodes.map(field => ({ text: field.value, fits: field.scrollHeight <= field.clientHeight + 1 }))))
+        await sheet.screenshot({ path: path.join(outputDir, `new-method-${width}-${turn}.png`) })
+        const next = sheet.getByRole('button', { name: /^Next(?::| Pages?$)/ })
+        if (!await next.count()) break
+        await next.click()
+      }
+      assert.equal(parts.map(part => part.text).join(''), compactMethod, 'New Recipe preserves every method character across its paper leaves')
+      assert.ok(parts.every(part => part.fits), 'New Recipe method fields fit their paper')
+      assert.ok(parts.length <= maximumParts, `New Recipe uses measured paper capacity at ${width}px instead of tiny text fragments`)
+    } finally { await createContext.close() }
+  }
+  process.stdout.write('New Recipe: measured desktop methods use the paper capacity without losing text or overflowing.\n')
+
   const fontRecipe = { ...longRecipe, id: 'font-position-recipe', ingredients: longRecipe.ingredients.slice(0, 6), instructions: longRecipe.instructions.slice(0, 4) }
   recipes.set(fontRecipe.id, fontRecipe)
   const writesBeforeFonts = saveRequests.length
@@ -903,7 +933,7 @@ try {
         if (scenario === 'turn') {
           const current = Number(await writing.getAttribute('data-form-page'))
           await sheet.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
-          await expect(layer).toHaveAttribute('data-phase', 'animating')
+          await sheet.waitForFunction(() => globalThis.document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase') === 'animating')
           await holdPaperTurn(layer)
           await expect(writing).toHaveAttribute('data-form-page', String(current + 1))
         } else {

@@ -37,7 +37,7 @@ export async function createRecipe(page: Page, title: string): Promise<string> {
   await ingredients.getByLabel('Ingredient 1 quantity').fill('2')
   await ingredients.getByLabel('Ingredient 1 unit').fill('tablespoons')
   const method = await navigateToRecipeSection(page, 'Cooking method')
-  await method.getByRole('button', { name: 'Add cooking step' }).click()
+  await method.getByRole('button', { name: /^Add (?:cooking )?step$/ }).click()
   await method.getByLabel('Step 1 description').fill('Warm the oil and fold in the herbs.')
 
   const savedRecipe = page.waitForResponse((response) =>
