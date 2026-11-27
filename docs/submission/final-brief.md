@@ -54,7 +54,7 @@ Verified JWTs, owner-scoped queries/RLS and backend-only quota/image operations 
 | Focused local source, 27 Nov | At `d329285`: 447 Edge/API passed, 0 failed, 5 environment-dependent cases ignored; frontend invocations passed 489 and 66 distinct focused cases. Eight revision diagnostic tests passed separately; no full-suite sum claimed. [Exact commands/runs](compilation-record.md#verification-record). |
 | Local persistence / browser | Disposable PostgreSQL 16: 13 migration scenarios and 137 RLS assertions passed. Chef happy path passed at two desktop sizes; lineage failure/reload/retry passed. Synthetic transport is separate from real SQL checks and establishes no hosted-DB acceptance. [Run record](compilation-record.md#verification-record). |
 | Production acceptance | PA-20261127: AUTH-01, CRUD-01, DUR-01, AI-EX-01 and app-level R2-01 passed; Chef and revision end-to-end failed; R2-02 partial. Tests belong to `5cad4b8`/`05c9b32`, not later main. [Report](assets/PA-20261127.md). |
-| Repair / proof limits | Unmerged [#308](https://github.com/2ton-exe/moris-mix-ai/pull/308), `40b5e10`: 63 generation and 53 RecipePages tests pass; revision save/reopen passes at two desktop sizes. Wider frontend attempt: one timeout. PA failures remain unaccepted; exact-target semantics limited. [Repair runs](compilation-record.md#repair-follow-up-verification). |
+| Repair / proof limits | Repair [#308](https://github.com/2ton-exe/moris-mix-ai/pull/308), `40b5e10`: 63 generation and 53 RecipePages tests pass; revision save/reopen passes at two desktop sizes. Wider frontend attempt: one timeout. PA failures remain unaccepted; exact-target semantics limited. [Repair runs](compilation-record.md#repair-follow-up-verification). |
 
 ### 7 Engineering process & CI/CD
 
