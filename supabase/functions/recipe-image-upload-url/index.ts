@@ -1,3 +1,4 @@
+import { readBodyWithinByteLimit } from "../_shared/ai/http.ts";
 import { type AuthDeps, authenticateRequest } from "../_shared/auth.ts";
 import {
   getCorsHeaders,
@@ -5,6 +6,7 @@ import {
   jsonResponse,
 } from "../_shared/cors.ts";
 import {
+  MAX_RECIPE_IMAGE_METADATA_BYTES,
   type RecipeImageContentType,
   RecipeImageContentTypeSchema,
   RecipeImageUploadRequestSchema,
@@ -435,9 +437,26 @@ export async function handler(
         deps,
       );
     }
+    const read = await readBodyWithinByteLimit(
+      req,
+      MAX_RECIPE_IMAGE_METADATA_BYTES,
+    );
+    if (!read.ok) {
+      return read.reason === "too_large"
+        ? error(
+          "INPUT_TOO_LARGE",
+          `Request body must be at most ${MAX_RECIPE_IMAGE_METADATA_BYTES} bytes.`,
+          413,
+        )
+        : error(
+          "INVALID_JSON",
+          "Request body must be a valid JSON object.",
+          400,
+        );
+    }
     let parsed: unknown;
     try {
-      parsed = await req.json();
+      parsed = JSON.parse(read.text);
     } catch {
       return error(
         "INVALID_JSON",
