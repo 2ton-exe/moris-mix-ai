@@ -8,7 +8,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
-import { assertJournalGeometry, settleJournalLayout } from './journal-geometry.mjs'
+import { assertJournalGeometry, holdPaperTurn, settleJournalLayout } from './journal-geometry.mjs'
 import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
 
 const desktopOnly = process.env.MORI_DESKTOP_ONLY === 'true'
@@ -107,7 +107,7 @@ try {
   page.on('response', (response) => {
     if (response.url().startsWith(appOrigin) && response.status() >= 400) brokenResources.push(response.url())
   })
-  await context.route('**/*', async (route) => {
+  const interceptRequest = async (route) => {
     const url = new URL(route.request().url())
     if (url.origin === appOrigin) return route.continue()
     assert.equal(url.origin, apiOrigin, `Unexpected external request: ${url.origin}`)
@@ -170,13 +170,15 @@ try {
       }
     }
     return route.fulfill({ status: 404, json: { error: { code: 'UNEXPECTED_TEST_REQUEST', message: 'Unexpected isolated request' } } })
-  })
-  await page.addInitScript(({ userId }) => {
+  }
+  const authenticate = ({ userId }) => {
     const expires_at = Math.floor(Date.now() / 1000) + 3600
     const user = { id: userId, aud: 'authenticated', email: 'recipe-forms@example.test', app_metadata: {}, user_metadata: {}, created_at: '2026-10-25T00:00:00Z' }
     const token = `${globalThis.btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${globalThis.btoa(JSON.stringify({ sub: userId, exp: expires_at }))}.test-signature`
     globalThis.localStorage.setItem('sb-recipe-journal-auth-token', JSON.stringify({ access_token: token, refresh_token: 'test-refresh', expires_at, expires_in: 3600, token_type: 'bearer', user }))
-  }, { userId })
+  }
+  await context.route('**/*', interceptRequest)
+  await context.addInitScript(authenticate, { userId })
 
   const dashboardUrl = new URL('app/recipes', origin).toString()
   const createUrl = new URL('app/recipes/new', origin).toString()
@@ -864,6 +866,89 @@ try {
   await page.screenshot({ path: path.join(outputDir, 'deleted-collection.png'), fullPage: true })
   await context.close()
   process.stdout.write(`Delete flow: cancellation, focus return, pending, recoverable failure/retry, and 204 success passed. Screenshots: ${outputDir}\n`)
+
+  const fontRecipe = { ...longRecipe, id: 'font-position-recipe', ingredients: longRecipe.ingredients.slice(0, 6), instructions: longRecipe.instructions.slice(0, 4) }
+  recipes.set(fontRecipe.id, fontRecipe)
+  const writesBeforeFonts = saveRequests.length
+  for (const [width, height] of [[1100, 640], [1280, 720], [1470, 803]]) {
+    for (const scenario of ['caret', 'turn']) {
+      const cold = await browser.newContext({ viewport: { width, height }, reducedMotion: scenario === 'caret' ? 'reduce' : 'no-preference' })
+      const fonts = gate()
+      try {
+        await cold.route('**/*', interceptRequest)
+        await cold.route('**/*.woff2', async route => { await fonts.promise; await route.continue() })
+        await cold.addInitScript(authenticate, { userId })
+        const sheet = await cold.newPage()
+        sheet.on('pageerror', error => pageErrors.push(error.message))
+        await sheet.goto(editUrl(fontRecipe.id) + '?section=method', { waitUntil: 'domcontentloaded' })
+        await expect(sheet.getByRole('textbox', { name: 'Step 1 description', exact: true })).toBeVisible()
+        await expect.poll(() => sheet.evaluate(() => globalThis.document.fonts.status)).toBe('loading')
+        const writing = sheet.locator('.mm-journal-book > .mm-journal-spread .mm-writing-pages')
+        const pageCount = async () => {
+          const indicator = await sheet.locator('.mm-journal-book > .mm-journal-spread .mm-pagination-number').textContent()
+          const count = Number(indicator?.match(/of (\d+)/)?.[1])
+          assert.ok(Number.isInteger(count) && count > 0, 'The prepared editor must expose a valid total page count')
+          return count
+        }
+        const fields = sheet.locator('.mm-journal-book > .mm-journal-spread textarea[data-instruction-key]')
+        const layer = sheet.locator('[data-journal-page-turn]')
+        const selection = () => sheet.evaluate(() => {
+          const field = globalThis.document.activeElement
+          return field instanceof globalThis.HTMLTextAreaElement ? {
+            key: field.dataset.instructionKey, start: Number(field.dataset.instructionOffset) + field.selectionStart,
+            end: Number(field.dataset.instructionOffset) + field.selectionEnd,
+            text: field.value.slice(field.selectionStart, field.selectionEnd),
+          } : null
+        })
+        if (scenario === 'turn') {
+          const current = Number(await writing.getAttribute('data-form-page'))
+          await sheet.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
+          await expect(layer).toHaveAttribute('data-phase', 'animating')
+          await holdPaperTurn(layer)
+          await expect(writing).toHaveAttribute('data-form-page', String(current + 1))
+        } else {
+          for (let turn = 0; turn < 2; turn++) await sheet.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
+          await fields.first().focus()
+          await fields.first().press('Home')
+          for (let key = 0; key < 4; key++) await fields.first().press('ArrowRight')
+          for (let key = 0; key < 6; key++) await fields.first().press('Shift+ArrowRight')
+        }
+        const before = await selection()
+        const beforePages = await pageCount()
+        const destination = await fields.first().evaluate(field => ({ key: field.dataset.instructionKey, offset: Number(field.dataset.instructionOffset) }))
+        fonts.release()
+        await sheet.evaluate(() => globalThis.document.fonts.ready)
+        if (scenario === 'turn') {
+          await expect(layer).toHaveAttribute('data-progress', '0.5')
+          await layer.evaluate(node => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
+        }
+        await expect(layer).toHaveCount(0)
+        await settleJournalLayout(sheet)
+        assert.ok(await pageCount() < beforePages, 'Loaded fonts must replace fallback fragmentation with measured pages')
+        if (scenario === 'caret') {
+          assert.ok(before && before.end > before.start, 'The test must select actual instruction text')
+          assert.deepEqual(await selection(), before, 'Font arrival must preserve the selected source characters')
+          await sheet.setViewportSize(width === 1100 ? { width: 1280, height: 720 } : { width: 1100, height: 640 })
+          await settleJournalLayout(sheet)
+          assert.deepEqual(await selection(), before, 'Desktop reflow must preserve the selected source characters')
+        } else {
+          assert.ok(await fields.evaluateAll((nodes, destination) => nodes.some(field => field.dataset.instructionKey === destination.key
+            && Number(field.dataset.instructionOffset) <= destination.offset && Number(field.dataset.instructionOffset) + field.value.length > destination.offset), destination), 'The arrived page must retain its pre-font text destination')
+        }
+        assert.deepEqual(await fields.evaluateAll(nodes => nodes.filter(field => {
+          const leaf = field.closest('.mm-writing-leaf')
+          return field.scrollHeight > field.clientHeight + 1 || leaf.scrollHeight > leaf.clientHeight + 2
+        }).map(field => field.name)), [], 'Settled method fields must fit the paper after font loading and reflow')
+        await sheet.screenshot({ path: path.join(outputDir, `font-position-${width}-${scenario}.png`) })
+      } finally {
+        fonts.release()
+        await cold.close()
+      }
+    }
+  }
+  assert.equal(saveRequests.length, writesBeforeFonts, 'Font loading and reflow must not save the recipe')
+  assert.deepEqual(pageErrors, [])
+  process.stdout.write('Cold fonts: source selections survive font arrival and desktop reflow; active paper turns keep their text destination.\n')
 } finally {
   await browser?.close()
   await server.close()

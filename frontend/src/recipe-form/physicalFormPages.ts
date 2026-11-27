@@ -128,7 +128,7 @@ export type RecipeFormLeaf =
   | { key: 'ingredients-empty'; kind: 'ingredients-empty'; rowKeys: [] }
   | { key: `ingredients:${number}`; kind: 'ingredients'; rowKeys: string[] }
   | { key: 'instructions-empty'; kind: 'instructions-empty'; rowKeys: [] }
-  | { key: `instructions:${number}`; kind: 'instructions'; rowKeys: string[]; textParts: { rowKey: string; part: number }[] }
+  | { key: `instructions:${number}`; kind: 'instructions'; rowKeys: string[]; textParts: { rowKey: string; part: number; start: number }[] }
 
 function shortIngredientSummary(row: IngredientRow) {
   const amount = row.quantityText.trim() || `${row.quantity} ${row.unit}`.trim()
@@ -160,17 +160,20 @@ export function recipeFormLeaves(state: RecipeEditorState, single = false, revie
   const instructionLeaves: RecipeFormLeaf[] = []
   for (const row of state.instructions) {
     const parts = splitInstructionText(row.text, textPageLength, textPageRows, instructionColumns, instructionLayout)
+    let start = 0
     for (const [part] of parts.entries()) {
+      const textPart = { rowKey: row.key, part, start }
+      start += parts[part].length
       const previous = instructionLeaves.at(-1)
       if (part === 0 && parts.length === 1 && previous?.kind === 'instructions' && previous.textParts.every((item) => item.part === 0) && previous.rowKeys.length < instructionGroupSize) {
         const previousLength = previous.textParts.reduce((sum, item) => sum + (state.instructions.find((candidate) => candidate.key === item.rowKey)?.text.length ?? 0), 0)
         const previousRows = previous.rowKeys.reduce((sum, key) => sum + instructionRows(state.instructions.find((candidate) => candidate.key === key)?.text ?? ''), 0)
         if (previousLength + row.text.length <= instructionLimit && previousRows + instructionRows(row.text) + previous.rowKeys.length * (instructionLayout?.overhead ?? 0) <= instructionTextRows) {
-          instructionLeaves[instructionLeaves.length - 1] = { ...previous, rowKeys: [...previous.rowKeys, row.key], textParts: [...previous.textParts, { rowKey: row.key, part }] }
+          instructionLeaves[instructionLeaves.length - 1] = { ...previous, rowKeys: [...previous.rowKeys, row.key], textParts: [...previous.textParts, textPart] }
           continue
         }
       }
-      instructionLeaves.push({ key: `instructions:${instructionLeaves.length}`, kind: 'instructions', rowKeys: [row.key], textParts: [{ rowKey: row.key, part }] })
+      instructionLeaves.push({ key: `instructions:${instructionLeaves.length}`, kind: 'instructions', rowKeys: [row.key], textParts: [textPart] })
     }
   }
   const instructionPages: RecipeFormLeaf[] = instructionLeaves.length ? instructionLeaves : [{ key: 'instructions-empty', kind: 'instructions-empty', rowKeys: [] }]
@@ -203,6 +206,14 @@ export function leafKeyForFieldPath(path: string, state: RecipeEditorState): Rec
 }
 
 export function leafIndexForAnchor(leaves: RecipeFormLeaf[], anchor: string) {
+  const offsetAnchor = /^instruction:([^:]+):offset:(\d+)$/.exec(anchor)
+  if (offsetAnchor) {
+    let destination = -1
+    for (const [index, leaf] of leaves.entries()) {
+      if (leaf.kind === 'instructions' && leaf.textParts.some(part => part.rowKey === offsetAnchor[1] && part.start <= Number(offsetAnchor[2]))) destination = index
+    }
+    return destination < 0 ? 0 : destination
+  }
   const instructionKey = /^instruction:([^:]+)(?::part:(\d+))?$/.exec(anchor)
   const noteAnchor = /^notes:(\d+)$/.exec(anchor)
   const index = leaves.findIndex((leaf) => leaf.key === anchor || ('rowKeys' in leaf && leaf.rowKeys.some((key) => anchor === `ingredient:${key}` || instructionKey?.[1] === key && (instructionKey[2] === undefined || leaf.kind === 'instructions' && leaf.textParts.some((part) => part.rowKey === key && part.part === Number(instructionKey[2]))))))
@@ -215,11 +226,11 @@ export function leafIndexForAnchor(leaves: RecipeFormLeaf[], anchor: string) {
   return index < 0 ? 0 : index
 }
 
-export function leafAnchorForPage(leaf: RecipeFormLeaf): string {
+export function leafAnchorForPage(leaf: RecipeFormLeaf, preserveTextPosition = false): string {
   if (leaf.kind === 'ingredients') return `ingredient:${leaf.rowKeys[0]}`
   if (leaf.kind === 'instructions') {
     const first = leaf.textParts[0]
-    return `instruction:${first.rowKey}:part:${first.part}`
+    return preserveTextPosition ? `instruction:${first.rowKey}:offset:${first.start}` : `instruction:${first.rowKey}:part:${first.part}`
   }
   return leaf.key
 }

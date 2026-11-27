@@ -47,6 +47,8 @@ function resizeTextarea(target: EventTarget | null) {
   if (getComputedStyle(target).getPropertyValue('field-sizing') !== 'content') target.style.height = `${target.scrollHeight}px`
 }
 
+type InstructionSelection = { rowKey: string; start: number; end: number; direction: 'forward' | 'backward' | 'none' | null }
+
 export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, createSubmitLabel = 'Save recipe', savedAction, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, reviewSaveContext, reviewReceipt, reviewComparison, comparisonIngredient, comparisonIngredientIndex, supplement }: RecipeFormEditorProps) {
   const prefix = useId()
   const [state, setState] = useState(() => initialEditorState ?? editorState(initialValues ?? emptyRecipeDraft()))
@@ -73,20 +75,18 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const [supplementHost] = useState(() => typeof document === 'undefined' ? null : document.createElement('div'))
   const focusRequest = useRef<string | null>(null)
   const initialMethodFocus = useRef(initialSection === 'method')
-  const focusInitialMethod = useCallback((control: HTMLElement | null) => {
-    if (!control || !initialMethodFocus.current) return
-    if (control.closest('.mm-facing-content--form') && !control.closest('.mm-facing-slot')) return
-    initialMethodFocus.current = false
-    control.focus()
-  }, [])
   const lastFocusedControl = useRef<{ key: string; start: number | null; end: number | null; direction: 'forward' | 'backward' | 'none' | null } | null>(null)
+  const instructionSelection = useRef<InstructionSelection | null>(null)
+  const previousInstructionLayout = useRef<InstructionLayout | undefined>(undefined)
   const previousLayout = useRef('')
-  const [compact, setCompact] = useState(false)
+  const [paperLayout, setPaperLayout] = useState({ compact: false, viewport: '' })
+  const compact = paperLayout.compact
   const [textPageLength, setTextPageLength] = useState(DEFAULT_FORM_TEXT_CHARS_PER_LEAF)
   const [textPageRows, setTextPageRows] = useState(12)
   const [textPageColumns, setTextPageColumns] = useState(56)
-  const [measuredInstructions, setMeasuredInstructions] = useState<InstructionLayout | undefined>()
+  const [measuredInstructions, setMeasuredInstructions] = useState<{ key: string; layout: InstructionLayout; selection: InstructionSelection | null }>()
   const instructionMeasurement = useRef('')
+  const instructionFontRevision = useRef(0)
   const [roomForTwoIngredientRows, setRoomForTwoIngredientRows] = useState(false)
   const requestedStart = useRef(0)
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
@@ -113,7 +113,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   }, [movingRow])
   const expandedNotes = desktopReview || (desktopRecipeEditor && notesSupported)
   const instructionColumns = desktopRecipeEditor ? Math.max(1, textPageColumns - 18) : textPageColumns
-  const instructionLayout = desktopEdit ? measuredInstructions : undefined
+  const instructionLayout = desktopEdit ? measuredInstructions?.layout : undefined
   const hasComparison = Boolean(reviewComparison)
   const flowingReview = desktopReview && hasComparison
   const leaves = useMemo(() => {
@@ -182,7 +182,19 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       }
     } catch { /* Native date and select controls do not expose text selection. */ }
     lastFocusedControl.current = { key: target.dataset.formFocusKey, start, end, direction }
+    instructionSelection.current = target instanceof HTMLTextAreaElement && target.dataset.instructionKey && target.dataset.instructionOffset !== undefined && start !== null && end !== null
+      ? { rowKey: target.dataset.instructionKey, start: Number(target.dataset.instructionOffset) + start, end: Number(target.dataset.instructionOffset) + end, direction }
+      : null
   }, [])
+
+  const focusInitialMethod = useCallback((control: HTMLElement | null) => {
+    if (!control || !initialMethodFocus.current) return
+    if (control.closest('.mm-facing-content--form') && !control.closest('.mm-facing-slot')) return
+    initialMethodFocus.current = false
+    control.focus()
+    if (control instanceof HTMLTextAreaElement && control.dataset.instructionKey) control.setSelectionRange(0, 0)
+    rememberFocus(control)
+  }, [rememberFocus])
 
   useLayoutEffect(() => {
     const book = formRef.current?.closest('.mm-journal-book') ?? formRef.current?.querySelector('.mm-journal-book')
@@ -192,9 +204,9 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       const fixedPage = flowingReview && formRef.current && reviewPageSize(formRef.current)
       const overhang = fixedPage ? Number.parseFloat(getComputedStyle(book).paddingBlockStart) * 2 : 0
       const next = (fixedPage ? fixedPage.height + overhang : entry.contentRect.height) < 740
-      if (next === compact) return
-      rememberFocus(document.activeElement)
-      setCompact(next)
+      if (!(document.activeElement instanceof HTMLElement) || !document.activeElement.dataset.instructionKey) rememberFocus(document.activeElement)
+      const viewport = `${window.innerWidth}:${window.innerHeight}`
+      setPaperLayout(current => current.compact === next && current.viewport === viewport ? current : { compact: next, viewport })
     })
     observer.observe(book)
     return () => observer.disconnect()
@@ -203,8 +215,11 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   useLayoutEffect(() => {
     const form = formRef.current
     if (!form) return
+    const book = form.closest<HTMLElement>('.mm-journal-book') ?? form.querySelector<HTMLElement>('.mm-journal-book')
+    const paper = book?.querySelector<HTMLElement>(':scope > .mm-journal-spread > .mm-journal-page')
+    const footer = paper?.querySelector<HTMLElement>('.mm-footer-actions')
     const measure = () => {
-      if (document.activeElement instanceof HTMLElement) rememberFocus(document.activeElement)
+      if (document.activeElement instanceof HTMLElement && !document.activeElement.dataset.instructionKey) rememberFocus(document.activeElement)
       const leaf = editorScope(form).querySelector<HTMLElement>('.mm-writing-leaf')
       // A flowing review grows with its content. Paginate against the journal's
       // viewport-based page size so a rendered leaf cannot change its own capacity.
@@ -223,7 +238,9 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
         const field = leaf.querySelector<HTMLTextAreaElement>('textarea[name^="instructions."]')
         return field ? [{ leaf, field }] : []
       })
-      if (desktopEdit && !pending && !message && !saved && methods.length > 0) {
+      const footerSpace = paper ? getComputedStyle(paper).getPropertyValue('--mm-footer-height') : ''
+      const footerReady = !footer || Number.parseFloat(footerSpace) === footer.offsetHeight
+      if (desktopEdit && paperLayout.viewport === `${window.innerWidth}:${window.innerHeight}` && footerReady && !isTurning && !pending && !message && !saved && (!document.fonts || document.fonts.status === 'loaded') && methods.length > 0) {
         const { field } = methods[0]
         const card = field.closest('fieldset')
         if (card) {
@@ -237,8 +254,15 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
           const fieldPadding = parseFloat(fieldStyle.paddingTop) + parseFloat(fieldStyle.paddingBottom)
           // Both paper sides share a budget; the Add control must not change part boundaries on each turn.
           const offset = Math.max(...methods.map(({ leaf, field }) => field.getBoundingClientRect().top - leaf.getBoundingClientRect().top + leaf.scrollTop))
-          const height = Math.min(...paperLeaves.map(leaf => leaf.clientHeight))
-          const contentWidth = card.clientWidth - parseFloat(cardStyle.paddingLeft) - parseFloat(cardStyle.paddingRight)
+          const writing = editorScope(form).querySelector<HTMLElement>('.mm-journal-spread .mm-writing-pages')
+          const height = Math.min(writing?.clientHeight ?? Infinity, ...paperLeaves.map(leaf => leaf.clientHeight))
+          const leafStyle = getComputedStyle(methods[0].leaf)
+          const paperWidth = Math.min(writing?.clientWidth ?? Infinity, ...paperLeaves.map(leaf => leaf.clientWidth))
+          const cardPadding = parseFloat(cardStyle.paddingLeft) + parseFloat(cardStyle.paddingRight)
+          const contentWidth = Math.min(card.clientWidth - cardPadding, paperWidth - cardPadding
+            - parseFloat(leafStyle.paddingLeft) - parseFloat(leafStyle.paddingRight)
+            - parseFloat(cardStyle.borderLeftWidth) - parseFloat(cardStyle.borderRightWidth)
+            - parseFloat(cardStyle.marginLeft) - parseFloat(cardStyle.marginRight))
           const numberWidth = parseFloat(cardStyle.getPropertyValue('--mm-step-number-width'))
           const actionWidth = parseFloat(cardStyle.getPropertyValue('--mm-step-action-width'))
           const gap = parseFloat(cardStyle.columnGap)
@@ -247,16 +271,19 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
           const inlinePadding = parseFloat(fieldStyle.paddingLeft) + parseFloat(fieldStyle.paddingRight)
           const tail = cardBounds.bottom - fieldBounds.bottom + parseFloat(cardStyle.marginBottom)
             + (sectionStyle ? parseFloat(sectionStyle.paddingBottom) + parseFloat(sectionStyle.marginBottom) : 0)
-            + parseFloat(getComputedStyle(methods[0].leaf).paddingBottom)
+            + parseFloat(leafStyle.paddingBottom)
           const rows = Math.max(1, Math.floor((height - offset - fieldPadding - tail) / lineHeight))
           const overhead = (fieldPadding + cardBounds.height - fieldBounds.height + parseFloat(cardStyle.marginTop) + parseFloat(cardStyle.marginBottom)) / lineHeight
           // A final unpaired leaf must not enlarge the budget and shift already visited text parts.
-          const key = `${window.innerWidth}:${window.innerHeight}:${compact}:${fieldStyle.font}`
+          const key = `${window.innerWidth}:${window.innerHeight}:${book?.clientWidth}:${book?.clientHeight}:${height}:${paperWidth}:${footerSpace}:${compact}:${fieldStyle.font}:${instructionFontRevision.current}`
           if (instructionMeasurement.current !== key) {
             const context = document.createElement('canvas').getContext('2d')
             if (context) {
               context.font = fieldStyle.font
-              setMeasuredInstructions({ rows, overhead, countRows: (text, continued) => measuredTextRows(text, (continued ? continuationWidth : width) - inlinePadding, value => context.measureText(value).width) })
+              const selection = instructionSelection.current
+              const focused = selection && (document.activeElement === document.body || document.activeElement instanceof HTMLTextAreaElement && document.activeElement.dataset.instructionKey === selection.rowKey) ? selection : null
+              if (focused) setPageAnchor(`instruction:${focused.rowKey}:offset:${focused.start}`)
+              setMeasuredInstructions({ key, selection: focused, layout: { rows, overhead, countRows: (text, continued) => measuredTextRows(text, (continued ? continuationWidth : width) - inlinePadding, value => context.measureText(value).width) } })
               instructionMeasurement.current = key
             }
           }
@@ -265,14 +292,16 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       // shortcut: use a 350px budget for two summaries until rows are measured individually.
       setRoomForTwoIngredientRows(desktopEdit && height >= 350)
     }
-    const book = form.closest<HTMLElement>('.mm-journal-book') ?? form.querySelector<HTMLElement>('.mm-journal-book')
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
     if (book) observer?.observe(book)
+    if (paper) observer?.observe(paper)
     editorScope(form).querySelectorAll('.mm-writing-leaf').forEach((leaf) => observer?.observe(leaf))
     window.addEventListener('resize', measure, true)
+    const measureFonts = () => { instructionFontRevision.current++; measure() }
+    document.fonts?.addEventListener('loadingdone', measureFonts)
     measure()
-    return () => { observer?.disconnect(); window.removeEventListener('resize', measure, true) }
-  }, [single, compact, desktopEdit, flowingReview, leaves.length, visibleIndicesKey, rememberFocus, pending, message, saved])
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure, true); document.fonts?.removeEventListener('loadingdone', measureFonts) }
+  }, [single, compact, paperLayout.viewport, desktopEdit, flowingReview, leaves.length, visibleIndicesKey, rememberFocus, pending, message, saved, isTurning])
 
   useLayoutEffect(() => {
     editorScope(formRef.current)?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))
@@ -288,13 +317,28 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
 
   // One controlled draft owns every value. Only current leaves are mounted.
   useLayoutEffect(() => {
-    const layout = single ? 'single' : compact ? `compact:${compactIngredientRows}:${compactIngredientRows === 2 ? currentLeafIndex : ''}` : 'spread'
+    const layout = (single ? 'single' : compact ? `compact:${compactIngredientRows}:${compactIngredientRows === 2 ? currentLeafIndex : ''}` : 'spread') + (desktopEdit ? `:${measuredInstructions?.key ?? ''}` : '')
+    const instructionsChanged = previousInstructionLayout.current !== instructionLayout
+    previousInstructionLayout.current = instructionLayout
     const modeChanged = previousLayout.current !== '' && previousLayout.current !== layout
     previousLayout.current = layout
     const request = focusRequest.current
     if (pending || isTurning || !request) {
       const remembered = lastFocusedControl.current
       const active = document.activeElement
+      const selection = instructionsChanged ? measuredInstructions?.selection : instructionSelection.current
+      if (modeChanged && desktopEdit && !pending && !isTurning && selection && (active === document.body || active instanceof HTMLTextAreaElement && active.dataset.instructionKey === selection.rowKey)) {
+        const fields = Array.from(editorScope(formRef.current)?.querySelectorAll<HTMLTextAreaElement>('textarea[data-instruction-key]') ?? [])
+          .filter(field => field.dataset.instructionKey === selection.rowKey && Number(field.dataset.instructionOffset) <= selection.start)
+        const control = fields.at(-1)
+        if (control) {
+          const offset = Number(control.dataset.instructionOffset)
+          control.focus({ preventScroll: true })
+          control.setSelectionRange(selection.start - offset, selection.end - offset, selection.direction ?? undefined)
+          rememberFocus(control)
+          return
+        }
+      }
       if (modeChanged && remembered && (active === document.body || active instanceof HTMLElement && active.dataset.formFocusKey === remembered.key)) {
         const control = Array.from(editorScope(formRef.current)?.querySelectorAll<HTMLElement>('[data-form-focus-key]') ?? [])
           .find((element) => element.dataset.formFocusKey === remembered.key)
@@ -323,7 +367,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       target = named instanceof HTMLElement ? named : editorScope(formRef.current)?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? null
     }
     target?.focus()
-  }, [state, errors, pending, isTurning, pageAnchor, single, compact, compactIngredientRows, currentLeafIndex, desktop, editingIngredientKey, leaves])
+  }, [state, errors, pending, isTurning, pageAnchor, single, compact, compactIngredientRows, currentLeafIndex, desktop, desktopEdit, editingIngredientKey, leaves, instructionLayout, measuredInstructions, rememberFocus])
 
   useLayoutEffect(() => {
     requestedStart.current = single ? currentLeafIndex : Math.floor(currentLeafIndex / 2) * 2
@@ -389,9 +433,9 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     const firstIndex = single ? page : page * 2
     const leaf = leaves[targetIndex ?? firstIndex]
     if (!leaf) return false
-    return requestJournalPageTurnFrom(formRef.current, page > position.page ? 'forward' : 'backward', () => setPreviewAnchor(leafAnchorForPage(leaf)), () => {
+    return requestJournalPageTurnFrom(formRef.current, page > position.page ? 'forward' : 'backward', () => setPreviewAnchor(leafAnchorForPage(leaf, desktopEdit)), () => {
       requestedStart.current = firstIndex
-      setPageAnchor(leafAnchorForPage(leaf))
+      setPageAnchor(leafAnchorForPage(leaf, desktopEdit))
       setPreviewAnchor(null)
       focusRequest.current = 'leaf-heading'
       afterTurn?.()
@@ -875,6 +919,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
         {!items.length && <p className="editor-empty">No cooking steps yet.</p>}
         {items.map(({ item, rowIndex, part }) => {
           const parts = splitInstructionText(item.text, textPageLength, textPageRows, instructionColumns, instructionLayout)
+          const partOffset = parts.slice(0, part).reduce((sum, value) => sum + value.length, 0)
           const partText = parts[part] ?? ''
           const fieldId = `${prefix}-instructions-${rowIndex}-${part}`
           const fieldLabel = 'Step ' + (rowIndex + 1) + (part > 0 ? ' continued' : '') + ' description'
@@ -889,7 +934,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
             <GripVertical size={18} aria-hidden="true" />
           </button>}
           <RecipeFormField id={fieldId} label={desktopRecipeEditor ? <span className="visually-hidden">{fieldLabel}</span> : fieldLabel} error={errors['instructions.' + rowIndex + '.text']}>
-            <textarea ref={rowIndex === 0 && part === 0 ? focusInitialMethod : undefined} {...field('instructions.' + rowIndex + '.text', false, `instruction:${item.key}:text:${part}`, fieldId)} data-form-page-anchor={`instruction:${item.key}:part:${part}`} data-form-autosize maxLength={Math.max(partText.length, 2_000 - item.text.length + partText.length)} rows={desktopRecipeEditor ? 1 : 4} value={partText} onChange={(event) => change({ ...state, instructions: state.instructions.map((row) => row.key === item.key ? { ...row, text: replaceFormTextPart(parts, part, event.target.value) } : row) })} />
+            <textarea ref={rowIndex === 0 && part === 0 ? focusInitialMethod : undefined} {...field('instructions.' + rowIndex + '.text', false, `instruction:${item.key}:text:${part}`, fieldId)} data-form-page-anchor={desktopEdit ? `instruction:${item.key}:offset:${partOffset}` : `instruction:${item.key}:part:${part}`} data-instruction-key={desktopEdit ? item.key : undefined} data-instruction-offset={desktopEdit ? partOffset : undefined} data-form-autosize maxLength={Math.max(partText.length, 2_000 - item.text.length + partText.length)} rows={desktopRecipeEditor ? 1 : 4} value={partText} onChange={(event) => change({ ...state, instructions: state.instructions.map((row) => row.key === item.key ? { ...row, text: replaceFormTextPart(parts, part, event.target.value) } : row) })} />
           </RecipeFormField>
           {part === 0 && <div className="recipe-row-actions">
             {!desktopRecipeEditor && <>
@@ -984,8 +1029,9 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     onSubmit={(event) => { void submit(event) }} onKeyDown={handlePageKeys}
     onFocusCapture={(event) => {
       const target = event.target
-      rememberFocus(target)
-      if (target.dataset.formFocusKey && target.matches('input[name], textarea[name], select[name]')) {
+      const publishingInstructionLayout = target.dataset.instructionKey && instructionMeasurement.current !== (measuredInstructions?.key ?? '')
+      if (!publishingInstructionLayout) rememberFocus(target)
+      if (target.dataset.formFocusKey && !publishingInstructionLayout && target.matches('input[name], textarea[name], select[name]')) {
         setPageAnchor(target.dataset.formPageAnchor ?? leafKeyForFieldPath(target.getAttribute('name') ?? '', state))
       }
     }} onInputCapture={(event) => {

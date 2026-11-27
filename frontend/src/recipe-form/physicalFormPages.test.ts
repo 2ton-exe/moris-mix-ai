@@ -163,3 +163,25 @@ it('reuses unchanged measured steps and recalculates changed text or paper geome
   const largerPaper = { ...layout, rows: 10 }
   expect(splitInstructionText(text, 1, 1, 1, largerPaper)).toEqual([text])
 })
+
+it('keeps a desktop method position when font or paper geometry changes its parts', () => {
+  const text = 'Warm the pan gently and stir the tomatoes until soft. '.repeat(8)
+  const state = editorState({ ...recipeFormFixture, instructions: [{ step: 1, text }] })
+  const narrow = { rows: 2, overhead: 2, countRows: (value: string) => formTextRows(value, 15) }
+  const wider = { ...narrow, rows: 6 }
+  const oldLeaves = recipeFormLeaves(state, false, null, true, true, 80, 3, 33, { instructionLayout: narrow })
+  const oldMethod = oldLeaves.filter(leaf => leaf.kind === 'instructions')[3]
+  const anchor = leafAnchorForPage(oldMethod, true)
+  expect(anchor).toMatch(/^instruction:[^:]+:offset:\d+$/)
+  const newLeaves = recipeFormLeaves(state, false, null, true, true, 80, 3, 33, { instructionLayout: wider })
+  const destination = newLeaves[leafIndexForAnchor(newLeaves, anchor)]
+  expect(destination.kind).toBe('instructions')
+  const offset = Number(anchor.split(':').at(-1))
+  if (destination.kind === 'instructions') {
+    const part = destination.textParts[0]
+    const parts = splitInstructionText(text, 80, 3, 33, wider)
+    expect(part.start).toBeLessThanOrEqual(offset)
+    expect(part.start + parts[part.part].length).toBeGreaterThan(offset)
+  }
+  expect(leafAnchorForPage(oldMethod)).toMatch(/:part:3$/)
+})
