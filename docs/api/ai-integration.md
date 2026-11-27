@@ -158,13 +158,33 @@ output is limited to 8,192 tokens, and accepted extraction/generation JSON is at
 most 8 KiB. Oversized saved-recipe context is rejected before provider dispatch and
 rolls back the daily reservation.
 
-Before recipe bodies are returned to the Edge Function, the caller-scoped
-candidate RPC measures their aggregate JSON size and returns no bodies above
-64 KiB. This bounds candidate loading before prompt assembly; an oversized set
-uses the same `422 AI_CONTEXT_TOO_LARGE` response.
+Chef scans at most the latest 1,000 owned recipes in keyset order. Scoring pages
+contain ingredient names and ranking metadata, never instruction bodies, and are
+capped at 128 KiB (100 valid Unicode ingredient names can exceed 64 KiB on their
+own). The Edge Function retains only the best `topK` summaries using the existing
+pantry identity, overlap, rating, recency, and ID ranking rules. It then fetches
+the highest-ranked prefix that fits the 64 KiB recipe-body budget. The final
+assembled prompt still has its separate 64 KiB limit.
 
-Apply the bounded Chef retrieval and AI rate-limit migrations through the normal
-non-production validation and deployment workflow before deploying these handlers.
+A journal's aggregate recipe size does not reject generation. An individual
+recipe body above the context budget is excluded from selection so other matching
+recipes can still be used; if every matching recipe is oversized, the request
+returns `422 AI_CONTEXT_TOO_LARGE`. Legacy scoring rows exceeding a page budget
+are skipped and reported through `truncated`; ordinary candidate-limit truncation
+still means additional recipes exist beyond the scanned 1,000.
+
+Apply `20261127113008_paged_chef_candidate_retrieval.sql` through the guarded
+database release in each target environment before releasing the updated Edge
+handler. The production app release unconditionally checks that version in the
+intended project migration ledger before any deployment, even when image flags
+are off. A missing version, malformed ledger, or ledger HTTP/timeout failure
+blocks the release; it never applies the migration automatically. The production
+release token therefore requires `database_migrations_read` even for releases
+with images disabled. The old two-integer RPC overload remains for the separately
+deployed handler during this rollout; the new handler uses the scoring-page RPC
+and the ID-array overload. Remove the old overload only in a later cleanup after
+all handlers have moved. Follow the guarded database and Edge release workflows;
+this change does not itself deploy or activate either service.
 
 ### Quota (AI-17)
 

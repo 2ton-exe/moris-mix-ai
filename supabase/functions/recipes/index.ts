@@ -2314,7 +2314,7 @@ async function handleRequest(
                 error: {
                   code: "RECIPE_CHANGED",
                   message:
-                    "The recipe changed. Reload it before saving cooking details.",
+                    "The recipe changed. Reload it before saving.",
                 },
               },
               { status: 409 },

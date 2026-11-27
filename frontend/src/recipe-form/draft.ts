@@ -3,7 +3,7 @@ import { parseIngredientQuantity } from '../../../supabase/functions/_shared/ing
 import type { Instruction } from '../api/demoRecipe'
 import { ingredientInputSchema } from '../api/ingredient'
 
-const instructionSchema = z.object({ step: z.number().finite(), text: z.string().max(2_000) }) satisfies z.ZodType<Instruction>
+const instructionSchema = z.object({ step: z.number().finite(), text: z.string().min(1, 'Enter a cooking step.').max(2_000) }) satisfies z.ZodType<Instruction>
 
 function calendarDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
