@@ -22,7 +22,9 @@ BEGIN
           AND handler.prosecdef
           AND handler.proconfig = ARRAY['search_path=public, extensions, pg_temp']
           AND pg_catalog.pg_get_userbyid(handler.proowner) IN ('postgres', 'supabase_admin')
-          AND handler.prosrc = $expected$
+          -- Preserve every body byte except the CR in a CRLF pair.
+          AND pg_catalog.replace(handler.prosrc, E'\r\n', E'\n') COLLATE pg_catalog."C" =
+              pg_catalog.replace($expected$
 begin
     insert into public.profiles (id, display_name, avatar_url)
     values (
@@ -33,7 +35,7 @@ begin
     on conflict (id) do nothing;
     return new;
 end;
-$expected$
+$expected$, E'\r\n', E'\n')
     ) THEN
         RAISE EXCEPTION 'Reviewed Auth profile migration or function is incompatible';
     END IF;

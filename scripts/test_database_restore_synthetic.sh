@@ -816,7 +816,8 @@ SQL
 # Include the checked-in handler as the archive schema would. The new replay
 # step alone reconstructs the trigger on the managed Auth table.
 sed -e 's/\r$//' "$script_dir/../supabase/migrations/20261013000000_initial_schema.sql" |
-  sed -n '/^create or replace function public[.]handle_new_user()/,/^[$][$];$/p' >> "$fixture/schema.sql"
+  sed -n '/^create or replace function public[.]handle_new_user()/,/^[$][$];$/p' > "$root/auth-handler.sql"
+cat "$root/auth-handler.sql" >> "$fixture/schema.sql"
 cat > "$fixture/history-schema.sql" <<'SQL'
 CREATE SCHEMA IF NOT EXISTS supabase_migrations;
 CREATE TABLE supabase_migrations.schema_migrations (version text PRIMARY KEY);
@@ -1065,11 +1066,10 @@ require_auth_reconstruction_failure P0001
 cp "$root/history-data.sql" "$fixture/history-data.sql"
 
 cp "$fixture/schema.sql" "$root/auth-handler-schema.sql"
-cat >> "$fixture/schema.sql" <<'SQL'
-CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions, pg_temp
-AS $$ BEGIN RETURN NEW; END; $$;
-SQL
+# Change a metadata key the email-only probe does not exercise. The function
+# contract itself must reject this body, even with CRLF line endings.
+sed "s/'full_name'/'unexpected_name'/" "$root/auth-handler.sql" |
+  awk '{ printf "%s\r\n", $0 }' >> "$fixture/schema.sql"
 require_auth_reconstruction_failure P0001
 cp "$root/auth-handler-schema.sql" "$fixture/schema.sql"
 
@@ -1079,6 +1079,7 @@ principal_query "$admin_db" "
   CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.synthetic_conflicting_handler();
 " > "$root/auth-trigger-conflict.out"
+# The duplicate-trigger error also proves the unchanged LF handler passed its contract.
 require_auth_reconstruction_failure 42710
 [[ "$(principal_query "$admin_db" "
   SELECT (tgfoid = 'public.synthetic_conflicting_handler()'::regprocedure)::int
@@ -1090,6 +1091,8 @@ principal_query "$admin_db" "
 " > "$root/auth-trigger-conflict-cleanup.out"
 echo 'synthetic-auth-reconstruction=expected-failure missing-version=yes wrong-function=yes conflict=yes rollback=pass'
 
+# Replay the equivalent handler with explicit CRLF bytes as the final definition.
+awk '{ printf "%s\r\n", $0 }' "$root/auth-handler.sql" >> "$fixture/schema.sql"
 if ! run_restore_step admin-restore ||
     ! grep -Fq 'Transactional isolated SQL restore passed.' "$root/step.out" ||
     grep -Fq 'SYNTHETIC_ADMIN_FILES_REACHED' "$root/step.out" "$root/step.err"; then
@@ -1111,13 +1114,15 @@ if [[ "$(principal_query "$admin_db" "
     EXISTS (SELECT FROM pg_trigger WHERE tgrelid = 'auth.users'::regclass
             AND tgname = 'on_auth_user_created' AND tgenabled = 'O'
             AND tgfoid = 'public.handle_new_user()'::regprocedure)
+    AND EXISTS (SELECT FROM pg_proc WHERE oid = 'public.handle_new_user()'::regprocedure
+                AND strpos(prosrc, chr(13) || chr(10)) > 0)
     AND NOT EXISTS (SELECT FROM auth.users WHERE email LIKE 'mori-restore-probe-%@example.invalid')
   )::int
 ")" != 1 ]]; then
-  echo '::error::Synthetic Auth trigger binding or probe rollback was not verified'
+  echo '::error::Synthetic Auth trigger binding, CRLF storage, or probe rollback was not verified'
   exit 1
 fi
-echo 'synthetic-auth-reconstruction=pass auth-role-probe=pass probe-rollback=pass'
+echo 'synthetic-auth-reconstruction=pass line-endings=crlf auth-role-probe=pass probe-rollback=pass'
 
 if ! run_restore_step aggregates ||
     ! grep -Fq 'Five application table counts and the migration version set match the backup.' "$root/step.out"; then
