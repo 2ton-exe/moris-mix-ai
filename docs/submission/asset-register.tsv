@@ -56,97 +56,97 @@ frontend/public/twemoji/svg/1fadb.svg	4f4b3a4337ec13eb962fbcce06d593a981ff99b458
 frontend/src/assets/journal/fonts/caveat-latin.woff2	891951df5e8b5b0f0bc760d31375405e795c666b5add70437de12d4a6482b33f	A03	Verified	none
 frontend/src/assets/journal/fonts/figtree-latin.woff2	4ba7d3d096695818fe0686be4f1e82c6b05134e18a22260336130335027462dd	A03	Verified	none
 frontend/src/assets/journal/fonts/fraunces-latin.woff2	7234ed860a9cc83045413c4faee63c960a8f2d1917adcf728119307d56e0d783	A03	Verified	none
-frontend/src/assets/journal/mori/E/grip.svg	bfa1146f17f307a0eb0eabd034276ed7cfc3d53f1984b94947bb7383a1c9cd8c	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/E/idle.svg	bc0d6d8e65d123f99f5aef9c2b89b92e9136ab3fea8ca27a42d103b8142744d0	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/E/reach.svg	82195f34a8fbffff7b16abb27e15d9644af39f438a4580f54835f43737a62ad3	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/E/release.svg	b90fd05df71efe07eed6350983e3cddd3a0e0716047b2ed4ed62dd3d69f0371e	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/E/walk-01.svg	550e9192f30255a9c63606c074c6b30d322baa91c3b2791b94926137efb4ee41	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/E/walk-02.svg	ea9176d5643e3a74e1c71d80a027fe5278dfc69e6a047cc0951516983027e489	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/E/walk-03.svg	68664decf9eaf2f284925df14dae59f5da471cd2249526bb5bcef4c124d4b906	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/E/walk-04.svg	464bc92c688bf2846c810e082907cad3157f32361aa107b171b89df9d9dc7b6c	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/E/walk-05.svg	74b6a3e826be975ea78b5d92b295a0c57aa302ef374b9a36e6c0aedcd63389f4	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/E/walk-06.svg	a1c21d311b093ffad19a72701e45557bf5bf8ce6d1dc13c30ad5b7e722e0e58f	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/N/idle.svg	9ba8b62ddc0775dc1fceb18bd2a3f713fd45d6de56b1fd9298d1630b96868cc4	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/N/walk-01.svg	520025a19650ba3453dda0f5caa5f055443b41aad91e2259446de172db7effdc	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/N/walk-02.svg	02ba077257df3eb34105d0357ba44c85218dbf5ee91786b91eacd7d1357bc29c	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/N/walk-03.svg	115b26526ac7f57cdcacf37191d425616ea74e6ca9d1ea212342088a8b86109f	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/N/walk-04.svg	99f0b0bf41d02aeddce2f8dec4ea76ee43e31f30eb15aacaeca808fd05658966	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/N/walk-05.svg	d3d0829c873db31ed7dd85a6ca949aa8fcba447bd7f9aeabfe5f1a5362c1cc3b	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/N/walk-06.svg	3122b032494bfdc106d5b466f60b806c636009c617e297fdb45312ebc0e3d26a	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NE/idle.svg	673a2cceb496e076243bb62e6d305e2199084d253c1929472ef7cb3382f7f057	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NE/walk-01.svg	9c3dafdb7aa8922e9f8066011175dbd658cf5754c4049ee5ade8e3b67a7f5989	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NE/walk-02.svg	fc067ed96f86b26b896ecce51854bca3bd2d9f3a4cb3d109d44178c113ad1c33	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NE/walk-03.svg	93c41d269b5f619aedeb597986f0e7acd2118733ea712fe842ba23b3eea3d656	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NE/walk-04.svg	e9cc49584a158d5419828a60c6cc049a4b92f8769ed662693d8c3442c889618f	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NE/walk-05.svg	9036a569bb87f79a7874127c5ee41008ec17460fb2b7db3096f85faaa373af68	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NE/walk-06.svg	b4deda36fdf7904f905b0b45ee86293bba5dab6cde9f9b1029ff597bc9e3d909	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NW/idle.svg	4920a403e11d8e251e051daf3c01dc4d8b7da83e28468271a1293cacbf525652	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NW/walk-01.svg	af0824e056eb5425fe8a3299da003a385eed7b7c6f52f9bf9bcd7912d982b4c7	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NW/walk-02.svg	80fa2c26dc0ff791abdb54f0c1236e8c0d95fde74d58dd27f50bbff054939eee	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NW/walk-03.svg	93edc056db16aa9c6148efd6b8207a6e630df54618782c9ca9b7601782d75189	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NW/walk-04.svg	394fa03d1294a2aa9cdf3dd66f62a9d7a5cf1428d6df35196ab1af54e9ab40eb	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NW/walk-05.svg	8a5e4763994ee9ecc6a28d7935a5867a1266f9b985120c81fdd3870602040320	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/NW/walk-06.svg	e08807dc55971e5ef3aee617b7492cb7abfd22a6a86da11221bbb37e07ebb088	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/S/idle.svg	7d0577e940c60ee59f37280d09c553051acfaa321f860d8d2b21037087f33470	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/S/walk-01.svg	939d0de318b651b42d849238c0de317a9c32af132c0c0cc885d52bb5941425a3	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/S/walk-02.svg	a4cc6fdfb8c89a439c8f92f4379420eabeec0187382a38946d2767c2987318ac	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/S/walk-03.svg	bbf576a440411e0425e3b7591c279802aee81dc414d504775fcb69cd6a9c5b4d	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/S/walk-04.svg	74da45a3308cc31465a778ed70cd9a13df940c0d8310f1d905bc16078ccacaa5	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/S/walk-05.svg	200153495ae71b356392d4cdf252f02088d022419e2a978500469102bc8f7ee8	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/S/walk-06.svg	6409b27839121b8b31e814075010d553c41a2b67f9aeb8fc8091cd7e900d22ab	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SE/idle.svg	fb2ceea5e48a0168964d7d56d222f9057d0f748e78fb0bc663679de0704d74f2	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SE/walk-01.svg	536f148c85d68d951a38a19b04566cd53ae953fd273b2014320edb2a4975d007	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SE/walk-02.svg	3cacee675746061e38ac3ba0970af6edf5825100a851577d63de84ff957c3928	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SE/walk-03.svg	0045e0316ef4f30354e7f06ff8c393b9a81ae52397cef245f077d73871aa0dec	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SE/walk-04.svg	8c410ad7d0b92be733082b506a9c8b1e38108b8597ef3b5ffb55f276033bb4dc	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SE/walk-05.svg	78d9ebcac00893d586c0539cc54e9a224b99c7b9a3c3920b0aa9c6db6b165159	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SE/walk-06.svg	869f82bb93c65ea476374f153ffa8886e988f754d8d4a7bb8c31040978d5f055	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SW/idle.svg	4069ec6934bf5dc3ab73e748a7b12e409c7427164a9c2d2c806abcb8b180428e	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SW/walk-01.svg	6c11168623dad16ba7421787771892b04bdc888409aeed4e0e9e44285d8e1e9e	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SW/walk-02.svg	ce409805bd8b2b47575bee7f688feaa8c989a18d373de9c546cd0b56ea8e5692	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SW/walk-03.svg	ce492195725f0e7e7e3e8e61efb996a435b587464fd5f929518cd54bf036fb0c	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SW/walk-04.svg	5a2e7ab5c9bec57dea22dee78e1211fe6d0ff2aad0b3f76ae760ee993d84df80	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SW/walk-05.svg	26fe472f802b010257e632c0819c50c396ee4bf5d37ed12eccc3a1d53133633d	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/SW/walk-06.svg	3dae006a9b9a9699d58f1fd82b70946f31c94aee3ca3826aac02341a82ee3faf	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/W/grip.svg	c78bcd052d8f5751d373692b3281bcbd5e6f9620efb2949b4d582b9837043898	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/W/idle.svg	d7ef56335f52258c792cb6eaf0fae4d5e239a4b78caaa8be696ef374f80cd2fa	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/W/reach.svg	ba9b3131e2714d461a19ba508c542615390ab2c049256aede76188fb9ab81874	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/W/release.svg	9c1da064cdf5f511a9cc0c047b5c7c9627d907e43a1d53e6d65b810c1482e8b3	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/W/walk-01.svg	5ab3ff187ecb17a56fc54f5452fde877f11d2f50b580556c2498c05898c0903a	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/W/walk-02.svg	4574450d3e94b9edbcdda3415b7ac0664884a90d4e34174795663edf648dc20f	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/W/walk-03.svg	aaeb11b281010cdc260673491e56170365e91439decdacb88081beeb82d1e3bc	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/W/walk-04.svg	0d71836df96cbbf3593437a78e424e6db983b6c7a0591f93bd1f4e6ea9e67fab	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/W/walk-05.svg	fbe407f162ef0d9edf336af6f1ec7f6d9474955607e91efafa6b4e9a9227a05a	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/mori/W/walk-06.svg	703af2016ba9f668c0aae37fa232fdbc5fd3e9e907814df9a18bdbe8900c5b67	A06	Awaiting confirmation	adnro2 / myntchoc
-frontend/src/assets/journal/props/flour.webp	09e96f4f355fbb6560c368e3841199e96f6d8d0348b6109652b28b8aa01b7327	A05	Awaiting confirmation	myntchoc / source supplier
-frontend/src/assets/journal/props/spoon.webp	2765a82cae9dacf45ac91cf2a5526934222a2dcf9f8ee166789ea4123d60e4d2	A05	Awaiting confirmation	myntchoc / source supplier
-frontend/src/assets/journal/props/sprig.webp	eb15f15b0a4c0caf6827c130b5f6aa4460fc74ce8da7cef8deb48d77c10b56f2	A05	Awaiting confirmation	myntchoc / source supplier
-frontend/src/assets/journal/props/whisk.webp	511ca8b387243250bec8fc1a479681c2cbd9f14d182cb46499238f0d2a19858c	A05	Awaiting confirmation	myntchoc / source supplier
+frontend/src/assets/journal/mori/E/grip.svg	bfa1146f17f307a0eb0eabd034276ed7cfc3d53f1984b94947bb7383a1c9cd8c	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/E/idle.svg	bc0d6d8e65d123f99f5aef9c2b89b92e9136ab3fea8ca27a42d103b8142744d0	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/E/reach.svg	82195f34a8fbffff7b16abb27e15d9644af39f438a4580f54835f43737a62ad3	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/E/release.svg	b90fd05df71efe07eed6350983e3cddd3a0e0716047b2ed4ed62dd3d69f0371e	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/E/walk-01.svg	550e9192f30255a9c63606c074c6b30d322baa91c3b2791b94926137efb4ee41	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/E/walk-02.svg	ea9176d5643e3a74e1c71d80a027fe5278dfc69e6a047cc0951516983027e489	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/E/walk-03.svg	68664decf9eaf2f284925df14dae59f5da471cd2249526bb5bcef4c124d4b906	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/E/walk-04.svg	464bc92c688bf2846c810e082907cad3157f32361aa107b171b89df9d9dc7b6c	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/E/walk-05.svg	74b6a3e826be975ea78b5d92b295a0c57aa302ef374b9a36e6c0aedcd63389f4	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/E/walk-06.svg	a1c21d311b093ffad19a72701e45557bf5bf8ce6d1dc13c30ad5b7e722e0e58f	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/N/idle.svg	9ba8b62ddc0775dc1fceb18bd2a3f713fd45d6de56b1fd9298d1630b96868cc4	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/N/walk-01.svg	520025a19650ba3453dda0f5caa5f055443b41aad91e2259446de172db7effdc	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/N/walk-02.svg	02ba077257df3eb34105d0357ba44c85218dbf5ee91786b91eacd7d1357bc29c	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/N/walk-03.svg	115b26526ac7f57cdcacf37191d425616ea74e6ca9d1ea212342088a8b86109f	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/N/walk-04.svg	99f0b0bf41d02aeddce2f8dec4ea76ee43e31f30eb15aacaeca808fd05658966	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/N/walk-05.svg	d3d0829c873db31ed7dd85a6ca949aa8fcba447bd7f9aeabfe5f1a5362c1cc3b	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/N/walk-06.svg	3122b032494bfdc106d5b466f60b806c636009c617e297fdb45312ebc0e3d26a	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NE/idle.svg	673a2cceb496e076243bb62e6d305e2199084d253c1929472ef7cb3382f7f057	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NE/walk-01.svg	9c3dafdb7aa8922e9f8066011175dbd658cf5754c4049ee5ade8e3b67a7f5989	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NE/walk-02.svg	fc067ed96f86b26b896ecce51854bca3bd2d9f3a4cb3d109d44178c113ad1c33	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NE/walk-03.svg	93c41d269b5f619aedeb597986f0e7acd2118733ea712fe842ba23b3eea3d656	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NE/walk-04.svg	e9cc49584a158d5419828a60c6cc049a4b92f8769ed662693d8c3442c889618f	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NE/walk-05.svg	9036a569bb87f79a7874127c5ee41008ec17460fb2b7db3096f85faaa373af68	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NE/walk-06.svg	b4deda36fdf7904f905b0b45ee86293bba5dab6cde9f9b1029ff597bc9e3d909	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NW/idle.svg	4920a403e11d8e251e051daf3c01dc4d8b7da83e28468271a1293cacbf525652	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NW/walk-01.svg	af0824e056eb5425fe8a3299da003a385eed7b7c6f52f9bf9bcd7912d982b4c7	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NW/walk-02.svg	80fa2c26dc0ff791abdb54f0c1236e8c0d95fde74d58dd27f50bbff054939eee	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NW/walk-03.svg	93edc056db16aa9c6148efd6b8207a6e630df54618782c9ca9b7601782d75189	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NW/walk-04.svg	394fa03d1294a2aa9cdf3dd66f62a9d7a5cf1428d6df35196ab1af54e9ab40eb	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NW/walk-05.svg	8a5e4763994ee9ecc6a28d7935a5867a1266f9b985120c81fdd3870602040320	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/NW/walk-06.svg	e08807dc55971e5ef3aee617b7492cb7abfd22a6a86da11221bbb37e07ebb088	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/S/idle.svg	7d0577e940c60ee59f37280d09c553051acfaa321f860d8d2b21037087f33470	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/S/walk-01.svg	939d0de318b651b42d849238c0de317a9c32af132c0c0cc885d52bb5941425a3	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/S/walk-02.svg	a4cc6fdfb8c89a439c8f92f4379420eabeec0187382a38946d2767c2987318ac	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/S/walk-03.svg	bbf576a440411e0425e3b7591c279802aee81dc414d504775fcb69cd6a9c5b4d	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/S/walk-04.svg	74da45a3308cc31465a778ed70cd9a13df940c0d8310f1d905bc16078ccacaa5	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/S/walk-05.svg	200153495ae71b356392d4cdf252f02088d022419e2a978500469102bc8f7ee8	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/S/walk-06.svg	6409b27839121b8b31e814075010d553c41a2b67f9aeb8fc8091cd7e900d22ab	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SE/idle.svg	fb2ceea5e48a0168964d7d56d222f9057d0f748e78fb0bc663679de0704d74f2	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SE/walk-01.svg	536f148c85d68d951a38a19b04566cd53ae953fd273b2014320edb2a4975d007	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SE/walk-02.svg	3cacee675746061e38ac3ba0970af6edf5825100a851577d63de84ff957c3928	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SE/walk-03.svg	0045e0316ef4f30354e7f06ff8c393b9a81ae52397cef245f077d73871aa0dec	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SE/walk-04.svg	8c410ad7d0b92be733082b506a9c8b1e38108b8597ef3b5ffb55f276033bb4dc	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SE/walk-05.svg	78d9ebcac00893d586c0539cc54e9a224b99c7b9a3c3920b0aa9c6db6b165159	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SE/walk-06.svg	869f82bb93c65ea476374f153ffa8886e988f754d8d4a7bb8c31040978d5f055	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SW/idle.svg	4069ec6934bf5dc3ab73e748a7b12e409c7427164a9c2d2c806abcb8b180428e	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SW/walk-01.svg	6c11168623dad16ba7421787771892b04bdc888409aeed4e0e9e44285d8e1e9e	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SW/walk-02.svg	ce409805bd8b2b47575bee7f688feaa8c989a18d373de9c546cd0b56ea8e5692	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SW/walk-03.svg	ce492195725f0e7e7e3e8e61efb996a435b587464fd5f929518cd54bf036fb0c	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SW/walk-04.svg	5a2e7ab5c9bec57dea22dee78e1211fe6d0ff2aad0b3f76ae760ee993d84df80	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SW/walk-05.svg	26fe472f802b010257e632c0819c50c396ee4bf5d37ed12eccc3a1d53133633d	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/SW/walk-06.svg	3dae006a9b9a9699d58f1fd82b70946f31c94aee3ca3826aac02341a82ee3faf	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/W/grip.svg	c78bcd052d8f5751d373692b3281bcbd5e6f9620efb2949b4d582b9837043898	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/W/idle.svg	d7ef56335f52258c792cb6eaf0fae4d5e239a4b78caaa8be696ef374f80cd2fa	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/W/reach.svg	ba9b3131e2714d461a19ba508c542615390ab2c049256aede76188fb9ab81874	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/W/release.svg	9c1da064cdf5f511a9cc0c047b5c7c9627d907e43a1d53e6d65b810c1482e8b3	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/W/walk-01.svg	5ab3ff187ecb17a56fc54f5452fde877f11d2f50b580556c2498c05898c0903a	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/W/walk-02.svg	4574450d3e94b9edbcdda3415b7ac0664884a90d4e34174795663edf648dc20f	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/W/walk-03.svg	aaeb11b281010cdc260673491e56170365e91439decdacb88081beeb82d1e3bc	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/W/walk-04.svg	0d71836df96cbbf3593437a78e424e6db983b6c7a0591f93bd1f4e6ea9e67fab	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/W/walk-05.svg	fbe407f162ef0d9edf336af6f1ec7f6d9474955607e91efafa6b4e9a9227a05a	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/mori/W/walk-06.svg	703af2016ba9f668c0aae37fa232fdbc5fd3e9e907814df9a18bdbe8900c5b67	A06	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/props/flour.webp	09e96f4f355fbb6560c368e3841199e96f6d8d0348b6109652b28b8aa01b7327	A05	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/props/spoon.webp	2765a82cae9dacf45ac91cf2a5526934222a2dcf9f8ee166789ea4123d60e4d2	A05	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/props/sprig.webp	eb15f15b0a4c0caf6827c130b5f6aa4460fc74ce8da7cef8deb48d77c10b56f2	A05	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/journal/props/whisk.webp	511ca8b387243250bec8fc1a479681c2cbd9f14d182cb46499238f0d2a19858c	A05	Source/tool declared; permission pending	myntchoc
 frontend/src/assets/journal/textures/desk-oak.jpg	e1d3adef0faeb63616e4f73bc8f9dacbe094ac3bd06798495ffeff935f94a9f9	A01	Verified	none
-frontend/src/assets/journal/textures/kitchen-tiles.webp	fdb74f13a30b8466ecf64f0c16d653e297b7da6b6fb9e86670f6806b9f1faf4c	A05	Awaiting confirmation	myntchoc / source supplier
+frontend/src/assets/journal/textures/kitchen-tiles.webp	fdb74f13a30b8466ecf64f0c16d653e297b7da6b6fb9e86670f6806b9f1faf4c	A05	Source/tool declared; permission pending	myntchoc
 frontend/src/assets/journal/textures/leather-relief.jpg	5c1ecf073125c34865d9c95c2adfb131553afcd30ae51c21abeb23161528115e	A01	Verified	none
-frontend/src/assets/stickers/chat-bubble.svg	55a50753ef3dca3f3c1941f284d428ff67c3acd5127e53100f68ce3c877ce000	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/chili.svg	8b77279032b1add0eba0dba9c3c87ca144141754a0aacb76dbf4668ee5824a91	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/chocolate.svg	f22f2db96dcadbea1227f6a088011d5083e98961d452d6f70330efa63a21d5b2	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/clipboard.svg	4368f1d31c89d969cacf685abd99c6c1f37528aef9ea866c06f76b94c3991649	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/cooking-pot.svg	a6ecfaf22afa0b4828f1f70112d6eeda1d658b187412a3252bd3eaa170ad1fb4	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/egg.svg	aeaa0af8573cfb70e195720f592f7083e3c976ee5e27ad604613a0247d65f571	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/flask.svg	d5f2558a5004462ed1eec30659b0cddfa07011a6a5400df2098fbad4592739f4	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/garlic.svg	f229096a066312558d97f6fbaf54c4a283ca1f65a6a99f0d37617acaac6fa69d	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/herb-sprig.svg	9feb43b46baf050922d8e726ad9e41cff24cbf5d52df9a3c75055a3d0056815b	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/ingredient-basket.svg	0b4f93e2fd872c8021199e85e35abb82027cd12e438e5b493bde341d84fe9e08	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/lemon.svg	28bc141d6a0d8969025a0907b6d6f6f9d0292570bd127520574d828e741ce4f0	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/mixing-bowl.svg	099c9b2a8f33b74f46284127195f4c0b8ce13d905dbba5f506c61b485067f489	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/mushroom.svg	86b0ed2c72703b19c0afb667cb36de21b95a47b5de714f712f0d00c5596d51d9	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/pantry-bottle.svg	2c28a97a1f5a05721928d72316fe0dd45e90f5195a73cda41ed8f076900496e5	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/peppercorns.svg	c9fe75b82500a9d85710972269489f4aa2f1bf2fb01e6b8b4d1fdfcead494288	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/pork.svg	29f428be89a00e7e0227c29d00408a8719caf895073f1c40be175f8ce9e4694a	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/recipe-book.svg	9320a676a8b8f9a1f8865663b60d21035ed9e1c806e29ec2b38aaf9bd1dcd18b	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/review-brush.svg	67dc84313abfd5198a5154f253e902289be725170ec6269b03684304384fc243	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/review-paper-edges.svg	0faedf9de23313e2db861ff5e00c1c2aa6142f7ac21803ff7562352e3540f364	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/rice-bowl.svg	d70597bc80e6f0cbf62a5b42820eefc9c1b99b2c72200c070266995f9c12b3de	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/salt.svg	659f7e6fb4363826c7a94a7bcea96a0d10b5aa4a9c69f6c00c34020d5ff12c45	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/scrapbook-hearts.svg	f4f03b8e3be4ca441e35e033a8742ef287bc5a206e30dcdcdfe61a5900cf57a3	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/sparkle.svg	6999904adfade2a0f707639512d36ac94a4abf4960fae1b2b1ce161d00c733bd	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/strawberry.svg	87256a94dc59ae30c0f12b4cf4975eda60da8d1099c713937d8b626b21cba741	A07	Awaiting confirmation	myntchoc / illustration contributor
-frontend/src/assets/stickers/tomato.svg	3a42c0461aa8ac6fd59b6135fdc4acab605b7ab1ba401543f1962c22f3d3044d	A07	Awaiting confirmation	myntchoc / illustration contributor
+frontend/src/assets/stickers/chat-bubble.svg	55a50753ef3dca3f3c1941f284d428ff67c3acd5127e53100f68ce3c877ce000	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/chili.svg	8b77279032b1add0eba0dba9c3c87ca144141754a0aacb76dbf4668ee5824a91	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/chocolate.svg	f22f2db96dcadbea1227f6a088011d5083e98961d452d6f70330efa63a21d5b2	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/clipboard.svg	4368f1d31c89d969cacf685abd99c6c1f37528aef9ea866c06f76b94c3991649	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/cooking-pot.svg	a6ecfaf22afa0b4828f1f70112d6eeda1d658b187412a3252bd3eaa170ad1fb4	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/egg.svg	aeaa0af8573cfb70e195720f592f7083e3c976ee5e27ad604613a0247d65f571	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/flask.svg	d5f2558a5004462ed1eec30659b0cddfa07011a6a5400df2098fbad4592739f4	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/garlic.svg	f229096a066312558d97f6fbaf54c4a283ca1f65a6a99f0d37617acaac6fa69d	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/herb-sprig.svg	9feb43b46baf050922d8e726ad9e41cff24cbf5d52df9a3c75055a3d0056815b	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/ingredient-basket.svg	0b4f93e2fd872c8021199e85e35abb82027cd12e438e5b493bde341d84fe9e08	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/lemon.svg	28bc141d6a0d8969025a0907b6d6f6f9d0292570bd127520574d828e741ce4f0	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/mixing-bowl.svg	099c9b2a8f33b74f46284127195f4c0b8ce13d905dbba5f506c61b485067f489	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/mushroom.svg	86b0ed2c72703b19c0afb667cb36de21b95a47b5de714f712f0d00c5596d51d9	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/pantry-bottle.svg	2c28a97a1f5a05721928d72316fe0dd45e90f5195a73cda41ed8f076900496e5	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/peppercorns.svg	c9fe75b82500a9d85710972269489f4aa2f1bf2fb01e6b8b4d1fdfcead494288	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/pork.svg	29f428be89a00e7e0227c29d00408a8719caf895073f1c40be175f8ce9e4694a	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/recipe-book.svg	9320a676a8b8f9a1f8865663b60d21035ed9e1c806e29ec2b38aaf9bd1dcd18b	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/review-brush.svg	67dc84313abfd5198a5154f253e902289be725170ec6269b03684304384fc243	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/review-paper-edges.svg	0faedf9de23313e2db861ff5e00c1c2aa6142f7ac21803ff7562352e3540f364	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/rice-bowl.svg	d70597bc80e6f0cbf62a5b42820eefc9c1b99b2c72200c070266995f9c12b3de	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/salt.svg	659f7e6fb4363826c7a94a7bcea96a0d10b5aa4a9c69f6c00c34020d5ff12c45	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/scrapbook-hearts.svg	f4f03b8e3be4ca441e35e033a8742ef287bc5a206e30dcdcdfe61a5900cf57a3	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/sparkle.svg	6999904adfade2a0f707639512d36ac94a4abf4960fae1b2b1ce161d00c733bd	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/strawberry.svg	87256a94dc59ae30c0f12b4cf4975eda60da8d1099c713937d8b626b21cba741	A07	Source/tool declared; permission pending	myntchoc
+frontend/src/assets/stickers/tomato.svg	3a42c0461aa8ac6fd59b6135fdc4acab605b7ab1ba401543f1962c22f3d3044d	A07	Source/tool declared; permission pending	myntchoc

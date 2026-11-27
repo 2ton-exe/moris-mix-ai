@@ -2,6 +2,11 @@
 
 An AI-assisted recipe journal and leftover-meal assistant developed by Team 2ton.exe. Save recipes, structure cooking notes, and generate meal ideas from available ingredients.
 
+## Submission evidence
+
+Review the [three-page technical brief (PDF)](docs/submission/final-brief.pdf), [editable DOCX](docs/submission/final-brief.docx), [current evidence map](docs/submission/README.md) and [consolidated questions/DevOps dependencies](docs/submission/outstanding-confirmations.md). The [existing Google Doc destination](https://docs.google.com/document/d/1USkQIcd6oCz7vO2sAsE2ssJcLbs-OOlsEqgfmDamqcI/edit?tab=t.0) still contains the dated 25 November draft pending approved replacement. This 27 November reconciliation is provisional; historical attribution and evidence limits are preserved.
+
+
 ## Project Setup
 
 See the [local development and troubleshooting guide](docs/development-setup.md) for frontend setup, the local Supabase stack, migrations and demo seed, and the demo API. It uses local-only credentials and does not require real Supabase or Gemini secrets.
@@ -51,7 +56,3 @@ Workflow:
 Issue → Branch → Implementation → Tests → Pull Request
 → Teammate Review → CI → Merge → Deploy → Verify
 ```
-
-## Submission evidence
-
-See the [27 November 2026 evidence and disclosure pack](docs/submission/README.md) for four-sprint records, the reconstructed board index, external-work and asset disclosure, and outstanding confirmation requests. Historical evidence and pending confirmations are marked separately.

@@ -1,0 +1,67 @@
+// Synthetic diagnostic only; imports current source without provider/network permission.
+import { assertEquals, assert, assertStringIncludes } from 'https://deno.land/std@0.168.0/testing/asserts.ts';
+import { explainRecipeRevision, type RecipeRevisionContext } from './supabase/functions/_shared/ai/recipeRevision.ts';
+import { GeneratedRevisionSchema } from './supabase/functions/_shared/ai/schemas.ts';
+import { buildRecipeRevisionPrompt } from './supabase/functions/_shared/ai/prompts.ts';
+import { normalizeIngredientUnit, parseIngredientQuantity } from './supabase/functions/_shared/ingredient-units.ts';
+const noteExcerpt = 'Change olive oil from 1 teaspoon to 2 teaspoons while keeping rice and tomato unchanged.';
+const source = {
+  id: '11111111-1111-4111-8111-111111111111', title: 'Synthetic tomato rice', star_rating: null,
+  ingredients: [
+    { name: 'rice', quantity: 1, unit: 'cup', inferred: false },
+    { name: 'tomato', quantity: 1, unit: 'piece', inferred: false },
+    { name: 'olive oil', quantity: 1, unit: 'tsp', inferred: false },
+  ],
+  instructions: [{ step: 1, text: 'Warm the olive oil and tomato.' }, { step: 2, text: 'Stir in the cooked rice.' }],
+};
+const context = { source, noteExcerpt } satisfies RecipeRevisionContext;
+function output() {
+  return GeneratedRevisionSchema.parse({
+    recipe: { title: 'Synthetic tomato rice next time', ingredients: source.ingredients.map((item, index) => index === 2 ? { ...item, quantity: 2, unit: 'teaspoons' } : item), instructions: source.instructions },
+    substitutions: [], parentRecipeIds: [source.id], revisionReason: 'Use two teaspoons of olive oil as requested.',
+  });
+}
+Deno.test('exact olive-oil note is preserved in the versioned prompt', () => {
+  const prompt = buildRecipeRevisionPrompt(context);
+  assertStringIncludes(prompt, noteExcerpt);
+  assertStringIncludes(prompt, 'Keep every other ingredient and quantity exactly as stored.');
+  assert(!prompt.includes('Unrelated private note'));
+});
+Deno.test('valid olive oil 1 teaspoon to 2 teaspoons is accepted, rice/tomato and original preserved', () => {
+  const before = JSON.stringify(source);
+  const generated = output();
+  const result = explainRecipeRevision(context, generated);
+  assertEquals(result?.before, { quantity: 1, unit: 'tsp' });
+  assertEquals(result?.after, { quantity: 2, unit: 'tsp' });
+  assertEquals(generated.recipe.ingredients.slice(0, 2), source.ingredients.slice(0, 2));
+  assertEquals(JSON.stringify(source), before);
+});
+Deno.test('explicit quantities and teaspoon aliases parse deterministically', () => {
+  assertEquals(parseIngredientQuantity('1'), 1);
+  assertEquals(parseIngredientQuantity('2'), 2);
+  assertEquals(normalizeIngredientUnit('teaspoons'), 'tsp');
+  assertEquals(normalizeIngredientUnit('teaspoon'), 'tsp');
+});
+Deno.test('unchanged output is rejected without a verified change', () => {
+  const generated = output(); generated.recipe.ingredients = structuredClone(source.ingredients);
+  assertEquals(explainRecipeRevision(context, generated), null);
+});
+Deno.test('a second ingredient amount change is rejected', () => {
+  const generated = output(); generated.recipe.ingredients[0].quantity = 2;
+  assertEquals(explainRecipeRevision(context, generated), null);
+});
+Deno.test('missing reason and unrelated direction rewrite are rejected', () => {
+  const generated = output(); generated.revisionReason = undefined;
+  assertEquals(explainRecipeRevision(context, generated), null);
+  const rewritten = output(); rewritten.recipe.instructions = [{ step: 1, text: 'Roast the food.' }, source.instructions[1]];
+  assertEquals(explainRecipeRevision(context, rewritten), null);
+});
+Deno.test('numeric source plus quantityText is conservatively unsupported', () => {
+  const withText = structuredClone(context);
+  withText.source.ingredients = withText.source.ingredients.map((item, index) => index === 2 ? { ...item, quantityText: '1 teaspoon' } : item);
+  assertEquals(explainRecipeRevision(withText, output()), null);
+});
+Deno.test('structural verifier does not establish the note target amount', () => {
+  const generated = output(); generated.recipe.ingredients[2].quantity = 3;
+  assertEquals(explainRecipeRevision(context, generated)?.after.quantity, 3);
+});

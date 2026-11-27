@@ -1,0 +1,542 @@
+[
+  {
+    "id": "frontend-focused",
+    "command": [
+      "node_modules/.bin/vitest",
+      "run",
+      "--configLoader",
+      "runner",
+      "src/ai-chef",
+      "src/quick-ai",
+      "src/auth",
+      "src/api",
+      "src/recipe-form/RecipePages.test.tsx",
+      "src/recipe-form/ingredientUnits.test.ts",
+      "--maxWorkers=2"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification/frontend",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:20:39.542724+08:00",
+    "exit_code": 0,
+    "finished_pht": "2026-11-27T22:21:00.531294+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "edge-focused",
+    "command": [
+      "deno",
+      "test",
+      "--frozen-lockfile",
+      "--node-modules-dir=auto",
+      "--allow-env",
+      "supabase/functions/tests/auth_test.ts",
+      "supabase/functions/tests/recipes_test.ts",
+      "supabase/functions/tests/usage_test.ts",
+      "supabase/functions/tests/ai_contracts_test.ts",
+      "supabase/functions/tests/ai_journeys_test.ts",
+      "supabase/functions/tests/candidate_token_test.ts",
+      "supabase/functions/tests/eval_dataset_test.ts",
+      "supabase/functions/tests/cross_user_rls_lineage_test.ts",
+      "supabase/functions/tests/gemini_adapter_test.ts",
+      "supabase/functions/tests/extract_recipe_test.ts",
+      "supabase/functions/tests/generate_recipe_test.ts",
+      "supabase/functions/tests/recipe_context_test.ts"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:20:39.542726+08:00",
+    "exit_code": 0,
+    "finished_pht": "2026-11-27T22:20:48.532585+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "chef-browser",
+    "command": [
+      "env",
+      "MORI_DESKTOP_ONLY=true",
+      "node",
+      "frontend/e2e/ai-chef.browser.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:20:39.542727+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:21:01.920764+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "chef-transition",
+    "command": [
+      "node",
+      "frontend/e2e/.pr293-chef-probe.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:22:28.831542+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:22:36.494739+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "frontend-note-contracts",
+    "command": [
+      "node_modules/.bin/vitest",
+      "run",
+      "--configLoader",
+      "runner",
+      "src/recipes/RecipeScreens.test.tsx",
+      "src/recipe-form/api.test.ts",
+      "src/recipe-form/submission.test.ts",
+      "--maxWorkers=2"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification/frontend",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? ../.pr293-revision-probe.ts\n?? e2e/.pr293-chef-probe.mjs\n?? node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:22:56.888889+08:00",
+    "exit_code": 0,
+    "finished_pht": "2026-11-27T22:23:02.302111+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "revision-probe",
+    "command": [
+      "deno",
+      "test",
+      "--frozen-lockfile",
+      "--node-modules-dir=auto",
+      "--allow-env",
+      ".pr293-revision-probe.ts"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:22:56.888891+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:22:59.410521+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "db-migrate",
+    "command": [
+      "env",
+      "DATABASE_URL=postgresql://postgres:pr293-synthetic@127.0.0.1:55493/postgres",
+      "node",
+      "run-migrations.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:22:56.888905+08:00",
+    "exit_code": 0,
+    "finished_pht": "2026-11-27T22:22:57.100584+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "chef-transition-corrected",
+    "command": [
+      "node",
+      "frontend/e2e/.pr293-chef-probe.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:23:18.488817+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:23:21.264061+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "db-rls",
+    "command": [
+      "env",
+      "DATABASE_URL=postgresql://postgres:pr293-synthetic@127.0.0.1:55493/postgres",
+      "CI=true",
+      "node",
+      "test-rls.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:23:18.488817+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:23:18.542469+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "db-lifecycle",
+    "command": [
+      "env",
+      "DATABASE_URL=postgresql://postgres:pr293-synthetic@127.0.0.1:55493/postgres",
+      "RUN_MIGRATION_DB_TESTS=true",
+      "CI=true",
+      "node",
+      "test-migrations.mjs",
+      "--run-db-tests"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:23:18.488822+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:23:18.562956+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "revision-probe-corrected",
+    "command": [
+      "deno",
+      "test",
+      "--frozen-lockfile",
+      "--node-modules-dir=auto",
+      "--allow-env",
+      ".pr293-revision-probe.ts"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:23:18.488823+08:00",
+    "exit_code": 0,
+    "finished_pht": "2026-11-27T22:23:19.447369+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "db-lifecycle-local",
+    "command": [
+      "env",
+      "DATABASE_URL=postgresql://postgres:pr293-synthetic@127.0.0.1:55493/postgres",
+      "RUN_MIGRATION_DB_TESTS=true",
+      "CI=false",
+      "node",
+      "test-migrations.mjs",
+      "--run-db-tests"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:23:27.201680+08:00",
+    "exit_code": 0,
+    "finished_pht": "2026-11-27T22:23:28.132005+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "chef-transition-final",
+    "command": [
+      "node",
+      "frontend/e2e/.pr293-chef-probe.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:23:38.756788+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:24:14.236733+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "db-rls-local",
+    "command": [
+      "env",
+      "DATABASE_URL=postgresql://postgres:pr293-synthetic@127.0.0.1:55493/postgres",
+      "CI=false",
+      "node",
+      "test-rls.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:23:38.756788+08:00",
+    "exit_code": 0,
+    "finished_pht": "2026-11-27T22:23:38.980567+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "chef-transition-complete",
+    "command": [
+      "node",
+      "frontend/e2e/.pr293-chef-probe.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:24:38.543057+08:00",
+    "exit_code": 0,
+    "finished_pht": "2026-11-27T22:24:46.103352+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "doc-typecheck",
+    "command": [
+      "node_modules/.bin/tsc",
+      "-p",
+      "tsconfig.app.json",
+      "--noEmit"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-reconciliation/frontend",
+    "revision": "60f580f9cc82f6a9079494a7f300e83ba209966e",
+    "status_before": "?? ../docs/submission/assets/verification/\n?? node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:25:19.356114+08:00",
+    "exit_code": 0,
+    "finished_pht": "2026-11-27T22:25:21.924311+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "doc-build",
+    "command": [
+      "node_modules/.bin/vite",
+      "build",
+      "--configLoader",
+      "runner"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-reconciliation/frontend",
+    "revision": "60f580f9cc82f6a9079494a7f300e83ba209966e",
+    "status_before": "?? ../docs/submission/assets/verification/\n?? node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v24.21.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:25:35.393666+08:00",
+    "exit_code": 0,
+    "finished_pht": "2026-11-27T22:25:37.161659+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "revision-browser",
+    "command": [
+      "node",
+      "frontend/e2e/.pr293-revision-browser.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/e2e/.pr293-revision-browser.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v26.10.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:27:58.563796+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:28:06.986787+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "revision-alias",
+    "command": [
+      "deno",
+      "test",
+      "--frozen-lockfile",
+      "--node-modules-dir=auto",
+      "--allow-env",
+      ".pr293-revision-alias.ts"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-alias.ts\n?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/e2e/.pr293-revision-browser.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v26.10.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:28:16.313128+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:28:17.811058+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "revision-browser-diagnostic",
+    "command": [
+      "node",
+      "frontend/e2e/.pr293-revision-browser.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-alias.ts\n?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/e2e/.pr293-revision-browser.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v26.10.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:28:25.851955+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:28:30.443790+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "revision-browser-final",
+    "command": [
+      "node",
+      "frontend/e2e/.pr293-revision-browser.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-alias.ts\n?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/e2e/.pr293-revision-browser.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v26.10.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:28:58.080372+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:29:07.199347+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "revision-browser-console",
+    "command": [
+      "node",
+      "frontend/e2e/.pr293-revision-browser.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-alias.ts\n?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/e2e/.pr293-revision-browser.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v26.10.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:29:16.716697+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:29:24.906741+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "revision-browser-measure",
+    "command": [
+      "node",
+      "frontend/e2e/.pr293-revision-browser.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-alias.ts\n?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/e2e/.pr293-revision-browser.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v26.10.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:30:29.912330+08:00",
+    "exit_code": 1,
+    "finished_pht": "2026-11-27T22:30:34.350181+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "revision-browser-settled",
+    "command": [
+      "node",
+      "frontend/e2e/.pr293-revision-browser.mjs"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-verification",
+    "revision": "d329285ce0be5e955ee6ac76751cf97f6e58f799",
+    "status_before": "?? .pr293-revision-alias.ts\n?? .pr293-revision-probe.ts\n?? frontend/e2e/.pr293-chef-probe.mjs\n?? frontend/e2e/.pr293-revision-browser.mjs\n?? frontend/node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v26.10.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:30:57.865324+08:00",
+    "exit_code": 0,
+    "finished_pht": "2026-11-27T22:31:01.921284+08:00",
+    "evidence": "local-runs.txt"
+  },
+  {
+    "id": "doc-textures",
+    "command": [
+      "/Users/mynt/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+      "/tmp/pr293-textures/docs/submission/assets/generate-textures.py"
+    ],
+    "cwd": "/Users/mynt/dev/moris-mix-pr293-reconciliation/frontend",
+    "revision": "60f580f9cc82f6a9079494a7f300e83ba209966e",
+    "status_before": "M ../README.md\n M ../docs/submission/README.md\n M ../docs/submission/asset-register.tsv\n M ../docs/submission/board-evidence.md\n M ../docs/submission/compilation-record.md\n M ../docs/submission/external-work-disclosure.md\n M ../docs/submission/outstanding-confirmations.md\n M ../docs/submission/process-evidence.md\n M src/assets/journal/README.md\n?? ../docs/submission/assets/PA-20261127.md\n?? ../docs/submission/assets/verification/\n?? ../docs/submission/final-brief.docx\n?? ../docs/submission/final-brief.md\n?? ../docs/submission/final-brief.pdf\n?? node_modules",
+    "runtime": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "node": "v26.10.0",
+      "deno": "deno 2.9.7 (stable, release, aarch64-apple-darwin)\nv8 15.0.245.2-rusty\ntypescript 6.0.3"
+    },
+    "started_pht": "2026-11-27T22:36:03.459371+08:00",
+    "exit_code": 0,
+    "finished_pht": "2026-11-27T22:36:06.211220+08:00"
+  }
+]
