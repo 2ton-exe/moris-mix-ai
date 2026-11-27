@@ -368,7 +368,7 @@ it('keeps verified attachment distinct from a selected photo when its display UR
   await screen.findByRole('img', { name: 'Selected recipe image preview' })
   fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
   await screen.findByRole('button', { name: 'Refresh attached image' })
-  expect(screen.getByText('Photo attached; refreshing the saved image.')).toBeTruthy()
+  expect(screen.getByText('Photo attached privately; refresh to view it.')).toBeTruthy()
   expect(screen.queryByText('No recipe photo has been added yet.')).toBeNull()
   expect(screen.queryByText('Selected photo — upload to attach privately.')).toBeNull()
   expect(attachCount).toBe(1)
