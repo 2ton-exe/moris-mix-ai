@@ -4,9 +4,11 @@ Reconcile the submission brief with dated production evidence and source, includ
 
 ## Changes made
 
-- Update the three-page PDF/DOCX and ten-heading brief, evidence table, exact-run appendix and remaining questions. Q6 now asks only for final document review.
+- Update the three-page PDF/DOCX and ten-heading brief, evidence table, exact-run appendix and remaining questions. Q1–Q6 now record Yuan/myntchoc’s 27 November confirmations and approval of reviewed revision `3677bce`, with narrower record/permission gaps.
 - Preserve PA-20261127's original results/revisions, four sprints, board relationships, contribution attribution, asset inventory and notices. Remove #282's obsolete pending blocker.
 - Keep missing originals/media, asset permissions, panel access and the separate DevOps dependency list explicit. Procedural textures are established in this PR's tree/build, not claimed deployed.
+
+- Recover both named DUR-01 screenshots from the supplied DOCX, with original image bytes, captions, dates and hashes. Preserve report outcomes and the separate R2 cleanup limitation. Final synthesis/Prompt 2 handoff await the next instruction.
 
 ## Testing performed
 
@@ -20,4 +22,4 @@ Existing #293 submission evidence; repair follow-up #308. No new issue or unrela
 
 ## Merge Danger
 
-**Keep #293 draft:** its frontend/asset scope can trigger staging when marked ready. No merge, deployment, production/provider operation, infrastructure change or teammate request was performed here. Local repair verification does not establish the historical production failures' causes or new production acceptance. Final document approval and the named evidence/access/DevOps gaps remain open; no 100% readiness claim.
+**Keep #293 draft:** its frontend/asset scope can trigger staging when marked ready. No merge, deployment, production/provider operation, infrastructure change or teammate request was performed here. Local repair verification does not establish the historical production failures' causes or new production acceptance. Document approval is recorded; the named evidence/access/DevOps gaps remain open; no 100% readiness claim.

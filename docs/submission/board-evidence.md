@@ -4,6 +4,14 @@
 
 The [Development Board](https://github.com/orgs/2ton-exe/projects/2) was unavailable at capture: GraphQL lacked `read:project` and anonymous HTTP returned 404. Iterations, historical moves, archived cards and complete board history were not recovered. The [automation record](../devops/project-board-automation.md) describes a separate historical checkpoint. No permissions changed. Repository Discussions was enabled with zero discussions at that capture.
 
+## Current sprint-label reconciliation
+
+[Read-only captured issue inventory](assets/sprint-labels-20261127.json).
+
+Yuan/myntchoc's **27 November 2026 PHT** clarification makes existing issue sprint labels the assignment reference. Read-only `gh issue list --repo 2ton-exe/moris-mix-ai --limit 500 --state all --json number,title,labels,state,closedAt,url` at **23:27 PHT** returned **79 unique sprint-labeled issues**: Sprint 1 **15**, Sprint 2 **22**, Sprint 3 **34**, Sprint 4 **9** (80 memberships because #51 has two labels). All Sprint 1–3 issues are closed; Sprint 4 #163, #165 and newly captured [#299](https://github.com/2ton-exe/moris-mix-ai/issues/299) remain open. The original **78 rows/159 pairs below remain unchanged**, rather than silently replacing their historical capture. #299 is DevOps cleanup/document reconciliation; its body retains unchecked deliverables and is not acceptance proof.
+
+Representative `gh api repos/2ton-exe/moris-mix-ai/issues/{51,18,59,108}/events --paginate` reads establish that #51 received its Sprint 3 label **after closure**, not demonstrated unfinished carryover. #18 closed 28 October and #59 closed 14 November while retaining their earlier sprint labels; late closure does not reassign a sprint. Issue state, completed/not-planned reason, linked PR merge and deployed acceptance remain distinct. [Current mapping/outcome interpretation](process-evidence.md#sprint-assignment-and-observed-outcomes) names the narrower calendar/selection-history limits; no historical board move or sprint dates are fabricated.
+
 ## Legend
 
 - The first four columns preserve captured issue labels, assignees, state/reason, original **UTC** dates, PR author and branch. `unassigned` means no captured GitHub assignee. Planned owner, PR author and actual PO duty remain separate facts; see [process evidence](process-evidence.md#evidence-rules-and-source-coverage).

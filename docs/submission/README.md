@@ -1,15 +1,15 @@
 # Submission brief and current evidence
 
-**27 November 2026, Asia/Manila · provisional, awaiting myntchoc review.** This pack reconciles dated evidence for [draft PR #293](https://github.com/2ton-exe/moris-mix-ai/pull/293). **myntchoc owns current non-DevOps documentation, verification, synthesis and final approval.** Historical contributors retain their attribution. The November 25 audits and supplied November 27 acceptance report remain dated originals; newer local results do not overwrite them.
+**27 November 2026, Asia/Manila · reviewed revision `3677bce` approved by myntchoc; clarification corrections approved; submission evidence still partial.** This pack reconciles dated evidence for [draft PR #293](https://github.com/2ton-exe/moris-mix-ai/pull/293). **myntchoc owns current non-DevOps documentation, verification, synthesis and final approval.** Historical contributors retain their attribution. The November 25 audits and supplied November 27 acceptance report remain dated originals; newer local results do not overwrite them.
 
-**Review the [three-page PDF](final-brief.pdf), [editable DOCX](final-brief.docx) or [brief text](final-brief.md).** The [single input register](outstanding-confirmations.md) contains six grouped questions/decisions for myntchoc, the disposition of the now-implemented application repairs, and five separate DevOps dependencies. No submission-ready or approved designation is made.
+**Review the [three-page PDF](final-brief.pdf), [editable DOCX](final-brief.docx) or [brief text](final-brief.md).** The [single input register](outstanding-confirmations.md) contains the Q1–Q6 dispositions and only narrower remaining gaps, the disposition of the now-implemented application repairs, and five separate DevOps dependencies. Document approval is recorded; no overall submission-ready designation is made.
 
 | Evidence map | Purpose |
 |---|---|
 | [Process evidence](process-evidence.md) / [board evidence](board-evidence.md) | Four sprints, originals versus reconstruction/recollection, 78 captured rows and 159 issue/PR pairs, actual historical authors/reviews and exact process gaps |
 | [External-work disclosure](external-work-disclosure.md) / [asset register](asset-register.tsv) | Incorporated tool/source declarations, all 151 image/font paths/hashes, retained notices and grouped A05–A08 permission decisions |
 | [Compilation record and verification](compilation-record.md#verification-record) | Exact commands, revisions/dirty state, runtimes, timestamps, pass/fail/skip units, source identities, diagnostics and access boundaries |
-| [PA-20261127 original supplied report](assets/PA-20261127.md) | Production observations including later operator-reported object presence; missing linked screenshots are explicitly listed |
+| [PA-20261127 original supplied report](assets/PA-20261127.md) | Production observations including later operator-reported object presence; both embedded DUR screenshots extracted with [report provenance](assets/clarification-record-20261127.json) |
 | [Remaining facts and decisions](outstanding-confirmations.md) | One manual-input register; behavior failures, missing originals/media, declarations and access issues; separate DevOps packet |
 
 ## Revision identities
@@ -34,7 +34,7 @@ Shared status definitions live in [process evidence](process-evidence.md#evidenc
 |---|---|---|---|---|---|---|---|---|
 | AUTH-01 | Signed-in journal | Pass | `5cad4b8` | Production, 27 Nov from 17:34:55 | PA | Text readable; captures pending | Reused session; no fresh credential-entry acceptance | myntchoc |
 | CRUD-01 | Create/reopen/edit/delete synthetic recipe | Pass | `5cad4b8` | Production, 27 Nov | PA | Text readable; other journey media pending | Applies to recorded synthetic flow/revision | myntchoc |
-| DUR-01 | Same witness after deployment, then cleanup | Pass | `5cad4b8`→`05c9b32` | Production, 27 Nov; follow-ups through 18:15 | PA; [deployment](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45977892706) | Two named screenshots absent here | No later-head durability claim | myntchoc |
+| DUR-01 | Same witness after deployment, then cleanup | Pass | `5cad4b8`→`05c9b32` | Production, 27 Nov; follow-ups through 18:15 | PA; [deployment](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45977892706) | Both report figures supplied in this pack | No later-head durability claim | myntchoc |
 | AI-EX-01 | Editable extraction, edit/save/reopen | Pass | `5cad4b8` | Production, 27 Nov | PA | Text readable; redacted capture pending | One app submission; no accuracy score | myntchoc |
 | AI-CH-01 | Chef preview through lineage/reopen | Failed end-to-end | `5cad4b8` | Production, 27 Nov | PA | Text readable; boundary diagnostics absent | Preview existed; Instructions step 4→inspiration failed before parent selection/save | myntchoc |
 | AI-REV-282 | Oil 1→2 tsp note revision | Failed end-to-end | `5cad4b8` | Production, 27 Nov | PA | Text readable; source/provider output absent | Quantity verification rejected; linked save, lineage/reopen and post-save behavior unaccepted | myntchoc |
@@ -48,7 +48,7 @@ Shared status definitions live in [process evidence](process-evidence.md#evidenc
 | #282 integration | Merge state | Merged | `7918d99` | GitHub, 27 Nov 15:47:17 | [PR](https://github.com/2ton-exe/moris-mix-ai/pull/282) | Public repository record | Removes pending-PR blocker, not failed product acceptance | myntchoc |
 | A01 replacement textures | Source/local build | Verified, undeployed | #293 tree `60f580f` + prose changes | Local, 27 Nov | [Disclosure](external-work-disclosure.md), local | Generator/hashes/screens readable | #293 unmerged; historical old-texture permission remains separate | myntchoc |
 | Final release | Designated version/tag | Missing at checkpoint | Later head not production-accepted here | GitHub metadata, 27 Nov | [Tags](https://github.com/2ton-exe/moris-mix-ai/tags), [releases](https://github.com/2ton-exe/moris-mix-ai/releases) | Public landing pages; DevOps packet pending | APIs returned empty; current designation requires DevOps fact | DevOps |
-| Process/disclosure | Four sprints and source/tool declarations | Partial | Dated originals + 27 Nov compilation | Repository/local/Drive | Linked pack above | Board substitute readable; originals/Doc access unverified for panel | Pitch approval, actual standups/retros, media and retained-asset permissions remain open | myntchoc |
+| Process/disclosure | Four sprints and source/tool declarations | Declarations/document approval confirmed; original records/permissions partial | Dated originals + 27 Nov compilation | Repository/local/Drive | Linked pack above | Board substitute readable; originals/Doc access unverified for panel | Pitch approval confirmed; exact approved revision, standups/retros, other media and retained-asset permissions remain open | myntchoc |
 
 ## Review and operational boundary
 
@@ -61,3 +61,7 @@ The [one review register](outstanding-confirmations.md) is the remaining work li
 The existing Google Doc and `FINAL DOCUMENT` tab were read successfully through the connected account; the tab still contains the November 25 draft. That establishes neither panel access nor an approved replacement. Historical anonymous spot checks returned 200 for representative GitHub source/issue/PR/run landing pages and 404 for the organization Project; they did not verify artifact downloads or panel membership. New local evidence is available in this review patch; final PDF/Google Doc submission and intended-viewer checks remain open. No sharing/visibility settings were changed.
 
 At **22:36–22:37 PHT**, a final read found #293 had concurrently been marked ready with its head unchanged. It was restored to draft at **22:37:14 PHT** under this task’s explicit keep-draft instruction. No workflow was dispatched or production/staging operation performed by this task; previous external activity is not reclassified as this task’s verification.
+
+## Approved clarification checkpoint
+
+Yuan/myntchoc approved documentation revision `3677bce` and its limitations on **27 November 2026 PHT**; [artifact hashes and source identities](assets/clarification-record-20261127.json) preserve the reviewed PDF/DOCX/text unchanged. The [confirmation register](outstanding-confirmations.md#q1q6-disposition--27-november-clarification) records approved corrections, embedded screenshot recovery, pitch/workflow attestations and remaining gaps. Synthesis/Google Doc replacement and the separate Prompt 2 handoff await the next message. D1–D5 and historical production failures remain separate from local repairs verified at `40b5e10`.
